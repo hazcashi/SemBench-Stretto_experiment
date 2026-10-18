@@ -38,3 +38,9 @@
 BF16 11B 權重約 22GB（20.5GiB），另計 CUDA contexts、KV、activation、embedding 與 allocator。48GB 是目標而非已測保證；先限 batch，記錄實際峰值，OOM 必須失敗不靜默量化或 offload。建議 RAM 64GB、磁碟至少 100GiB 可用給最小部署，完整 sweep 可能數百 GB。權重下載約 22GB 加 cache；100 篇 cr=0.8 KV 的真實大小由 token 長度與模型層數決定，量測後才擴大。
 
 本機 RTX 4060 Laptop 8GiB、driver 592.82，不能驗收雙模型；C 槽約 62GiB free，建置前檢查空間並限制編譯併行。不得刪除既有 Docker 資料以騰空間。模型權限與 API key 尚未提供；GHCR image 未建成/上傳前不聲稱可 pull。
+
+### 固定工作量的本地實測（非模型推論結果）
+
+依已固定的五份 CSV，首 100 篇 reports 產生：275 players、30 teams、655 players_to_games、183 teams_to_games。reports 共 171,666 字元，平均 1,716.66，最長 3,347；尚未取得 gated tokenizer 權限，因此不把字元數當作實測 token 數。
+
+HF 公開 metadata 回報 8B checkpoint 有 8,030,261,248 個 BF16 parameters，3B 有 3,212,749,824；權重理論合計約 22.49GB／20.94GiB，仍未包含 KV、CUDA contexts、activation 與 embedding。磁碟與 VRAM 峰值以租借主機上的實際紀錄為準。
