@@ -16,6 +16,10 @@ class Services:
     def start(self, name, command, port, timeout, expected_model=None):
         import requests
         with socket.socket() as probe:
+            if os.name != "nt":
+                # Match Linux HTTP servers: a previous owned server may leave
+                # TIME_WAIT sockets. Listening sockets still reject this bind.
+                probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             probe.bind(("127.0.0.1", port))  # Refuse to reuse an unknown server.
         log_path = self.log_dir / f"{name}.log"
         handle = log_path.open("w", encoding="utf-8")

@@ -95,6 +95,46 @@ def test_readiness_timeout_cleans_child(tmp_path):
     assert services.children == []
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Linux TIME_WAIT semantics")
+def test_restart_port_after_server_close(tmp_path):
+    import threading
+    listener = socket.socket()
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("127.0.0.1", 0))
+    port = listener.getsockname()[1]
+    listener.listen()
+
+    def serve_once():
+        connection, _ = listener.accept()
+        with connection:
+            connection.recv(4096)
+            connection.sendall(b"HTTP/1.0 200 OK\r\nContent-Length:2\r\n\r\nOK")
+            connection.shutdown(socket.SHUT_WR)
+            while connection.recv(4096):
+                pass
+        listener.close()
+
+    thread = threading.Thread(target=serve_once)
+    thread.start()
+    with socket.create_connection(("127.0.0.1", port), timeout=5) as client:
+        client.sendall(b"GET / HTTP/1.0\r\n\r\n")
+        while client.recv(4096):
+            pass
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+    # The readiness/cleanup test starts a real HTTP server; force the same port.
+    script = tmp_path / "server.py"
+    script.write_text('''from http.server import BaseHTTPRequestHandler, HTTPServer
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200); self.end_headers()
+        self.wfile.write(b'{"status":"alive","model_name":"test"}')
+HTTPServer(("127.0.0.1", '''+str(port)+'''), Handler).serve_forever()
+''')
+    with Services(tmp_path / "logs") as services:
+        assert services.start("restarted", [sys.executable, str(script)], port, 10, "test")["status"] == "alive"
+
+
 def test_failed_run_preserves_manifest(tmp_path, monkeypatch):
     pytest.importorskip("torch")
     from reasondb.reproduction import runner

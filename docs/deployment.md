@@ -55,6 +55,8 @@ Dockerfile 以 Python 3.12、CUDA 12.8.1、torch 2.9.1+cu128、torchvision 0.24.
 
 本地 Linux/Windows Docker Desktop 皆可 build，不需要 48GB GPU；需要足夠 RAM/磁碟及下載時間。建置 log 與成功狀態見 experiment_log。
 
+純程式修正可使用 `Publish source update with validated dependencies` workflow，指定成功完整建置的 digest 與其 40 字元 source revision。它會核對映像標籤及依賴輸入未變，再沿用同一環境、複製新版程式並重跑匯入／工具箱／測試，不重新編譯 FlashAttention。依賴有變時必須使用完整建置 workflow。新映像標籤記錄 source revision 及 `org.stretto.dependency-image`，可追查環境來源。
+
 ## 持久資料與結果
 
 - `data/hf/`：固定 model revision 的 Hugging Face cache。

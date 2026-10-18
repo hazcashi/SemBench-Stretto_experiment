@@ -1,0 +1,14 @@
+# Reuse an already validated environment for a source-only release.
+# The workflow verifies the base revision and unchanged dependency inputs first.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+ARG BASE_IMAGE
+ARG SOURCE_REVISION
+LABEL org.opencontainers.image.revision=$SOURCE_REVISION \
+      org.stretto.dependency-image=$BASE_IMAGE
+COPY stretto-main/stretto-main /opt/stretto/source
+COPY configs /opt/stretto/configs
+COPY tests /opt/stretto/tests
+COPY docs/source_provenance.json /opt/stretto/source_provenance.json
+RUN pip check && python -c "import torch,flash_attn; from kvpress import ExpectedAttentionPress" && \
+    python -m reasondb.reproduction.runner inspect && python -m pytest /opt/stretto/tests -q

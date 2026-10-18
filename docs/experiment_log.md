@@ -33,3 +33,5 @@
 本地暫存清理：只按已核對的 25 個 cache ID 刪除本次建置 cache（20.79GB），並移除本次下載的 CUDA devel image／暫用 dependencies image；既有 SonarQube container 與四個 volumes 保留。Docker 停止後使用 Windows Virtual Disk API 離線壓縮 Docker data VHDX，回傳成功，檔案由約 50.8GB 縮至約 10.9GB；Docker 已重啟並核對原 container／volumes，C 槽約 43GiB 可用。
 
 此文件會隨本次實際驗證結果更新；不把建置成功當成論文復現成功。
+
+服務重啟補查：在 Linux container 重現 server 主動關閉連線後的 `TIME_WAIT`，未設 `SO_REUSEADDR` 的埠檢查回傳 EADDRINUSE，即使沒有服務在 listen。Linux probe 已改為與 HTTP server 相同的重用選項；Windows 保留原行為，避免平台語意差異。新增回歸測試驗證同一埠能重新啟動，既有占用埠拒絕測試也保留。輕量 Linux/Python3.12 測試結果為 **7 passed、3 skipped**（未安裝 torch/OpenAI/HF）；完整依賴版本需在最終映像中跑滿 10 項。此修正會在首次完整建置成功後，以相同已驗證依賴層發佈新版程式映像。
