@@ -20,6 +20,8 @@ bash scripts/reproduce.sh run
 
 `STRETTO_IMAGE` 必須是實際建成的 tag/digest。目前是否已發佈見 experiment_log；不要把示意 placeholder 當可用映像。發佈後可把 digest 寫入 `docker/image.txt`，供所有 checkout 預設使用。GHCR 新套件預設 private；可在 package settings 調整為 public，或在租借主機用具 `read:packages` 權限的 token 先執行 `docker login ghcr.io`，不要將密碼放進腳本或 Git。GitHub 網站／Git 的登入不等同有 GHCR 權限，參見 [GitHub 官方說明](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)。
 
+本專案選擇公開 GHCR。首次發佈後，擁有者須在 [套件頁面](https://github.com/users/hazcashi/packages/container/package/sembench-stretto_experiment) 的 Package settings → Change visibility 選 Public；以實際設定與匿名驗證結果為準。可用 `python scripts/verify_public_image.py` 檢查固定 digest，不讀取任何本機登入憑證，也不下載整個映像。若尚無 `docker/image.txt`，可傳入 workflow artifact 中的完整 digest 作為參數。
+
 doctor：確認單張可見 GPU、CUDA、約 48GB VRAM、100GiB free、兩模型 config/tokenizer 權限，以及上述三種 OpenAI model 的實際小額存取；會產生少量 API 費用。沒有 token 時會立即指出缺少的變數，不下載權重。
 
 run：重新做 preflight，下載固定 revision 的 safetensors，生成固定資料子集，先各別測試 3B 和 8B，再啟動雙模型及文字 embedding，透過 upstream prepare 生成兩種 cr0.8 caches。之後跑自然語言 smoke query、Rotowire 原固定 query，以及 vanilla 8B silver reference。benchmark 保留原固定 logical plan；smoke 才測真實 NL planner。原固定 query 集只有一個，不是論文 sweep。
