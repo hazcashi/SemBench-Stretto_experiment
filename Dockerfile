@@ -1,13 +1,14 @@
 # syntax=docker/dockerfile:1.7
 ARG CUDA_DEVEL=nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04@sha256:24c8e3581ea6330038b0d374920721983312627f8adbfcf390bdb4b399d280ed
 ARG CUDA_RUNTIME=nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04@sha256:ac55d124da4882b497f732d8dfd9a702d5447a5f29d08d56da6f64f0a1eb34bc
-FROM ${CUDA_DEVEL} AS build
+FROM ${CUDA_DEVEL} AS dependencies
 ENV DEBIAN_FRONTEND=noninteractive PIP_NO_CACHE_DIR=1
 RUN apt-get update && apt-get install -y --no-install-recommends python3.12 python3.12-venv python3-dev git build-essential ca-certificates && rm -rf /var/lib/apt/lists/*
 RUN python3.12 -m venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
 COPY docker/requirements.lock /tmp/requirements.lock
 RUN pip install --upgrade pip==25.2 && pip install --require-hashes --extra-index-url https://download.pytorch.org/whl/cu128 -r /tmp/requirements.lock
+FROM dependencies AS build
 # Torch 2.9 has no matching upstream FA2 wheel in this release. Compile against
 # the exact installed torch/CUDA ABI, supporting Ampere and Ada (48GB targets).
 ENV MAX_JOBS=1 NVCC_THREADS=1 TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9" FLASH_ATTN_CUDA_ARCHS=80 FLASH_ATTENTION_FORCE_BUILD=TRUE

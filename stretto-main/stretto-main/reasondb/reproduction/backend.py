@@ -23,7 +23,12 @@ def main():
     if not torch.cuda.is_available() or torch.cuda.device_count() != 1:
         raise RuntimeError("Exactly one visible CUDA GPU is required")
     server.PINNED_KV_STORE.configure(0)
-    server.model_wrapper = server.KvTextQaModelWrapper(
+    class SingleGpuWrapper(server.KvTextQaModelWrapper):
+        def compute_direct_qa_response(self, questions, contexts, boolean_question, batch_size=1):
+            # The upstream direct endpoint otherwise defaults to batches of 128.
+            return super().compute_direct_qa_response(questions, contexts, boolean_question, batch_size=1)
+
+    server.model_wrapper = SingleGpuWrapper(
         model["model_name"], 0, compression_ratios=(0.8,), batch_sizes=(1,),
         press_name=profile["press_name"], vanilla_batch_size=1,
         model_revision=model["revision"], strict_errors=True,
@@ -76,7 +81,8 @@ def main():
                "reserved_bytes": torch.cuda.memory_reserved(),
                "peak_allocated_bytes": torch.cuda.max_memory_allocated(),
                "prefill_s": None, "decode_s": None,
-               "profile_enabled": bool(args.trace_dir)}
+               "profile_enabled": bool(args.trace_dir),
+               "inference_stats": (response.get_json(silent=True) or {}).get("stats")}
         with stats_path.open("a") as handle:
             handle.write(json.dumps(row)+"\n")
         return response

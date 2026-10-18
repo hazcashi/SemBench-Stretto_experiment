@@ -18,11 +18,13 @@ bash scripts/reproduce.sh doctor
 bash scripts/reproduce.sh run
 ```
 
-`STRETTO_IMAGE` 必須是實際建成的 tag/digest。目前是否已發佈見 experiment_log；不要把示意 placeholder 當可用映像。發佈後可把 digest 寫入 `docker/image.txt`，供所有 checkout 預設使用。GHCR private package 先 `docker login ghcr.io`，不要將密碼放進腳本或 Git。
+`STRETTO_IMAGE` 必須是實際建成的 tag/digest。目前是否已發佈見 experiment_log；不要把示意 placeholder 當可用映像。發佈後可把 digest 寫入 `docker/image.txt`，供所有 checkout 預設使用。GHCR 新套件預設 private；可在 package settings 調整為 public，或在租借主機用具 `read:packages` 權限的 token 先執行 `docker login ghcr.io`，不要將密碼放進腳本或 Git。GitHub 網站／Git 的登入不等同有 GHCR 權限，參見 [GitHub 官方說明](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)。
 
 doctor：確認單張可見 GPU、CUDA、約 48GB VRAM、100GiB free、兩模型 config/tokenizer 權限，以及上述三種 OpenAI model 的實際小額存取；會產生少量 API 費用。沒有 token 時會立即指出缺少的變數，不下載權重。
 
 run：重新做 preflight，下載固定 revision 的 safetensors，生成固定資料子集，先各別測試 3B 和 8B，再啟動雙模型及文字 embedding，透過 upstream prepare 生成兩種 cr0.8 caches。之後跑自然語言 smoke query、Rotowire 原固定 query，以及 vanilla 8B silver reference。benchmark 保留原固定 logical plan；smoke 才測真實 NL planner。原固定 query 集只有一個，不是論文 sweep。
+
+租借前可在本機執行 `bash scripts/reproduce.sh access`，不需要 GPU，僅測試 HF 與 OpenAI 存取，不下載模型權重；會有小額 API 呼叫。
 
 第一次可先執行 `bash scripts/reproduce.sh inspect`，不用 GPU 或 token 即可核對 operator 路由。run 的 smoke 是已知答案測試；model 回傳不確定或錯誤就失敗，不宣稱後端正常。
 
@@ -47,9 +49,11 @@ Dockerfile 以 Python 3.12、CUDA 12.8.1、torch 2.9.1+cu128、torchvision 0.24.
 
 - `data/hf/`：固定 model revision 的 Hugging Face cache。
 - `data/cache/`：Stretto metadata、KV cache、prompt cache，跨 run 保留。
-- `data/<profile>/subset/`：固定資料子集及來源 hash。
+- `data/<profile-name_config-hash>/subset/`：固定資料子集及來源 hash。
 - `results/<UTC timestamp>-<random id>/`：manifest、doctor、queries、metrics CSV、events JSONL、resource samples、backend logs／trace 或 failure.txt。
 - `results/logging/<run-id>/`：upstream FileLogger 的完整 operator／planner log。
+
+映像內程式與 config 固定；修改 Git checkout 的程式或 configs 後，需重建映像才會生效。profile 內容 hash 納入 Stretto cache namespace，避免更換模型 revision 或子集設定後讀到舊 metadata 或 KV。
 
 結果 cache 停用，每次 run 用新 ID；KV 與雲端 prompt cache 可能為 warm，manifest 記錄事前 cache 狀態。不要把重跑當成 cold run。要測 cold/warm，使用不同 `STRETTO_DATA_DIR` 指向新的空目錄，保留原資料即可。
 

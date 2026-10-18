@@ -25,9 +25,9 @@
 ## 階段與驗收
 
 - [x] 讀取 AGENTS.md 與主要原始碼。
-- [ ] 比對 upstream tree，固定 upstream/submodules，保存 provenance。
-- [ ] 建立 profile、文字工具箱、deterministic subset、runner 與失敗紀錄。
-- [ ] 建置固定 Linux/amd64 映像、doctor/run/profile 入口、GHCR workflow。
+- [x] 比對 upstream tree，固定 upstream/submodules，保存 provenance。
+- [x] 建立 profile、文字工具箱、deterministic subset、runner 與失敗紀錄。
+- [x] 建立 Dockerfile、doctor/run/profile/access 入口與 GHCR workflow；完整映像建置驗收另列。
 - [ ] CPU：語法、依賴、registry/profile 路由、無影像 operator、子集關聯、readiness/cleanup、匯入與 Docker build。
 - [ ] 有權限後：HF 兩模型 config/tokenizer 存取，OpenAI 實際小額請求。
 - [ ] 48GB GPU：nvidia-smi / torch CUDA；3B 單獨、8B 單獨、雙模型；query；固定 benchmark；backend trace。

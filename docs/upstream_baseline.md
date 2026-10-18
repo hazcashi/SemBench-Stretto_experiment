@@ -2,7 +2,7 @@
 
 - 專案 remote：`https://github.com/hazcashi/SemBench-Stretto_experiment.git`，審查開始時無任何 commit。
 - 比對 upstream：`https://github.com/DataManagementLab/stretto.git`，`6a540eab0581fa7e4b2605421839bfc3dde77eae`。
-- 下載 archive 真正起源 SHA 未知；比對 commit 不能當成 archive provenance 的證明。修改前逐檔結果保存在 `source_provenance.json`，681 個檔案一致、9 個非 Python 檔案不同、無遺失；文字以 LF 正規化後比較。相關 Python 檔案全數一致。
+- 下載 archive 真正起源 SHA 未知；比對 commit 不能當成 archive provenance 的證明。修改前逐檔結果保存在 `source_provenance.json`，683 個檔案一致、7 個 CSV 檔案不同、無遺失；文字以 LF 正規化、二進位圖片以原始 bytes 比較。相關 Python 檔案全數一致。
 - kvpress：`https://github.com/GabrieleSanmartino/kvpress.git`，`81c4c78bdcd7d4c2f18e6878e112a0599a953b43`。
 - palimpzest：`https://github.com/mitdbg/palimpzest.git`，`af44b09b7a6df302863e8fa28eb5fe9709e40d09`。保存 source，不安裝其整套環境；其 pandas~=2.1.1 與此 baseline 的 pandas>=2.3.3 不一致，也非 Rotowire 路徑需求。
 

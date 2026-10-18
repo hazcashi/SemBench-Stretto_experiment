@@ -95,6 +95,35 @@ def test_readiness_timeout_cleans_child(tmp_path):
     assert services.children == []
 
 
+def test_failed_run_preserves_manifest(tmp_path, monkeypatch):
+    pytest.importorskip("torch")
+    from reasondb.reproduction import runner
+    monkeypatch.setenv("REASONDB_CACHE_DIR", str(tmp_path / "cache"))
+    run_dir = tmp_path / "failed-run"
+    run_dir.mkdir()
+    def fail_access(_profile):
+        raise RuntimeError("injected unavailable access")
+    monkeypatch.setattr(runner, "doctor", fail_access)
+    profile = load_profile(ROOT / "configs/single_gpu.json")
+    with pytest.raises(RuntimeError, match="unavailable access"):
+        runner.run(profile, ROOT / "configs/single_gpu.json", run_dir)
+    report = json.loads((run_dir / "manifest.json").read_text())
+    assert report["status"] == "failed"
+    assert report["error_type"] == "RuntimeError"
+    assert report["cache_bytes_after_run"] == 0
+    assert "injected unavailable access" in (run_dir / "failure.txt").read_text()
+
+
+def test_access_fails_without_secrets_before_network(monkeypatch):
+    pytest.importorskip("openai")
+    pytest.importorskip("huggingface_hub")
+    from reasondb.reproduction.runner import check_access
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="Set HF_TOKEN"):
+        check_access(load_profile(ROOT / "configs/single_gpu.json"))
+
+
 def test_toolbox_isolation_and_quality_order():
     pytest.importorskip("torch")
     from reasondb.reproduction.profile import build_configurator

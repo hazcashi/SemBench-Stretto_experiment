@@ -33,6 +33,8 @@ jobs:
           build-args: SOURCE_REVISION=${{ github.sha }}
       - name: Export immutable image reference
         run: echo '${{ steps.name.outputs.image }}@${{ steps.build.outputs.digest }}' > image.txt
+      - name: Verify the published manifest
+        run: docker buildx imagetools inspect "$(cat image.txt)"
       - uses: actions/upload-artifact@v4
         with:
           name: immutable-image-reference

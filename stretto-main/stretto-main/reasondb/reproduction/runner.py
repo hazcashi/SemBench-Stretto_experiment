@@ -152,7 +152,7 @@ def run_queries(profile, subset_dir, run_dir):
 
     random.seed(profile["seed"])
     torch.manual_seed(profile["seed"])
-    database = Database(identifier_for_caching=profile["name"])
+    database = Database(identifier_for_caching=profile["cache_namespace"])
     for table in TABLES:
         database.add_table(path=subset_dir / f"{table}.csv", name=table,
                            text_columns=[InPlaceColumn("reports.report")] if table == "reports" else ())
@@ -187,6 +187,17 @@ def run_queries(profile, subset_dir, run_dir):
             benchmark = executor.execute_benchmark(ROTOWIRE_QUERIES, *guarantees,
                                                    skip_nl_translation=True, results_cache_dir=None)
             elapsed = time.perf_counter()-started
+            benchmark_rows = []
+            for index, query in enumerate(ROTOWIRE_QUERIES):
+                frame = benchmark.results[query.query]
+                frame.to_csv(run_dir / f"benchmark_{index}.csv", index=False)
+                row = {"stage": "benchmark", "query": query.query, "wall_s": elapsed,
+                       "rows": len(frame), "cost": benchmark.costs[query.query].to_json(),
+                       "metrics_status": "silver reference pending",
+                       "tuned_pipelines": benchmark.tuned_pipelines[query.query]}
+                rows.append(row)
+                benchmark_rows.append(row)
+            write_json(run_dir / "queries.json", rows)
             # Independent uncompressed 8B reference, using upstream LabelOptimizer.
             original_optimizer = executor.optimizer
             label_optimizer = LabelOptimizer()
@@ -201,14 +212,11 @@ def run_queries(profile, subset_dir, run_dir):
             for index, query in enumerate(ROTOWIRE_QUERIES):
                 frame = benchmark.results[query.query]
                 label = labels.results[query.query]
-                frame.to_csv(run_dir / f"benchmark_{index}.csv", index=False)
                 label.to_csv(run_dir / f"silver_{index}.csv", index=False)
                 pred_sig, label_sig = RowSignature.of(frame), RowSignature.of(label)
                 metrics = precision_recall_f1(*confusion_counts(pred_sig.hashes, label_sig.hashes))
-                rows.append({"stage": "benchmark", "query": query.query, "wall_s": elapsed,
-                             "rows": len(frame), "cost": benchmark.costs[query.query].to_json(),
-                             "metrics_against": "8B vanilla silver (not human labels)", **metrics,
-                             "tuned_pipelines": benchmark.tuned_pipelines[query.query]})
+                benchmark_rows[index].update({"metrics_status": "scored",
+                                             "metrics_against": "8B vanilla silver (not human labels)", **metrics})
     finally:
         collector.close()
         write_json(run_dir / "telemetry_summary.json", collector.snapshot_aggregates())
@@ -242,7 +250,7 @@ def run(profile, profile_path, run_dir, tracing=False):
         write_json(run_dir / "doctor.json", doctor(profile))
         (run_dir / "pip-freeze.txt").write_text(command_output([sys.executable, "-m", "pip", "freeze"]))
         download_models(profile)
-        subset_dir = Path(os.environ["STRETTO_DATA_ROOT"]) / profile["name"] / "subset"
+        subset_dir = Path(os.environ["STRETTO_DATA_ROOT"]) / profile["cache_namespace"] / "subset"
         manifest["subset"] = create_subset(REPO / "reasondb/evaluation/benchmarks/files", subset_dir, profile["reports_limit"])
         trace_dir = run_dir / "traces" if tracing else None
         if trace_dir:

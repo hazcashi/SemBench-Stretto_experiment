@@ -1,4 +1,5 @@
 """One source of truth for model roles, routes and the experiment configuration."""
+import hashlib
 import json
 from pathlib import Path
 
@@ -20,6 +21,7 @@ def load_profile(path):
         raise ValueError("v1 supports physical cr=0.8 and batch_size=1 only")
     if profile["reports_limit"] <= 0:
         raise ValueError("reports_limit must be positive")
+    profile["cache_namespace"] = profile["name"] + "_" + hashlib.sha256(json.dumps(profile, sort_keys=True).encode()).hexdigest()[:12]
     return profile
 
 

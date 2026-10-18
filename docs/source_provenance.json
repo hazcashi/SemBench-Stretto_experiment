@@ -2,10 +2,8 @@
   "compared_upstream_commit": "6a540eab0581fa7e4b2605421839bfc3dde77eae",
   "upstream_url": "https://github.com/DataManagementLab/stretto.git",
   "download_origin_commit": "unknown (archive has no Git metadata)",
-  "matched_count": 681,
+  "matched_count": 683,
   "changed": [
-    "images/overview.jpg",
-    "images/title.jpg",
     "reasondb/evaluation/benchmarks/files/ecommerce_products_large.csv",
     "reasondb/memory_footprint/kv_cache_footprint/kv_cache_footprint_image_100k.csv",
     "reasondb/memory_footprint/kv_cache_footprint/kv_cache_footprint_image_10k.csv",
@@ -1162,14 +1160,14 @@
       "matches_upstream": true
     },
     "images/overview.jpg": {
-      "sha256": "f806635dffd0c868fefd7a278af1b0a54fe1d973961c2cd40aa7f3bd6d7197e0",
+      "sha256": "42516f053f1325174275838d4eecf37ada85483fb5c0e04358f41eb9e5ce6fd6",
       "upstream_blob": "932b72999dc23b954f3593a3e76c79b172f29674",
-      "matches_upstream": false
+      "matches_upstream": true
     },
     "images/title.jpg": {
-      "sha256": "0eef76fe44447ed7466cc7119adb7e72bd87d99a3616f5b2749bda37b06336cd",
+      "sha256": "93003aeb3ea6c2a6efacc97f5bb2d2d60797c80e044b51de652b630a22e984f5",
       "upstream_blob": "838eb550eea94527ab163e002be8825dd8168c4b",
-      "matches_upstream": false
+      "matches_upstream": true
     },
     "pyproject.toml": {
       "sha256": "7e1bf6f4b7137ffbfd9a8ff931e8554907372a9cfd41f34c05fbc69871c1ca41",
@@ -3470,5 +3468,6 @@
   "submodules": {
     "kvpress": "81c4c78bdcd7d4c2f18e6878e112a0599a953b43",
     "palimpzest": "af44b09b7a6df302863e8fa28eb5fe9709e40d09"
-  }
+  },
+  "comparison_policy": "text CRLF normalized to LF; binary images compared as raw bytes; recorded before code modifications"
 }
