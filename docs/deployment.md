@@ -26,6 +26,14 @@ run：重新做 preflight，下載固定 revision 的 safetensors，生成固定
 
 租借前可在本機執行 `bash scripts/reproduce.sh access`，不需要 GPU，僅測試 HF 與 OpenAI 存取，不下載模型權重；會有小額 API 呼叫。
 
+Windows PowerShell 不使用 WSL 時，也可直接用 Docker Desktop 的 Linux engine 做同樣存取檢查；先填妥 `.env`，並使用發佈後的 digest：
+
+```powershell
+$image = (Get-Content docker/image.txt -Raw).Trim()
+New-Item -ItemType Directory -Force -Path data, results | Out-Null
+docker run --rm --init --env-file .env --mount "type=bind,source=$($PWD.Path)\data,target=/data" --mount "type=bind,source=$($PWD.Path)\results,target=/results" $image access
+```
+
 第一次可先執行 `bash scripts/reproduce.sh inspect`，不用 GPU 或 token 即可核對 operator 路由。run 的 smoke 是已知答案測試；model 回傳不確定或錯誤就失敗，不宣稱後端正常。
 
 ## 自行建置與發佈
@@ -58,5 +66,7 @@ Dockerfile 以 Python 3.12、CUDA 12.8.1、torch 2.9.1+cu128、torchvision 0.24.
 結果 cache 停用，每次 run 用新 ID；KV 與雲端 prompt cache 可能為 warm，manifest 記錄事前 cache 狀態。不要把重跑當成 cold run。要測 cold/warm，使用不同 `STRETTO_DATA_DIR` 指向新的空目錄，保留原資料即可。
 
 結果 precision/recall 預設對 vanilla 8B silver 計算，並非人類標註或論文 70B reference。模型改變後不保證 0.9 目標一定可達；輸出保留 optimizer guarantee 判定。子集的 rowid 改變，不套用原始人類 labels。
+
+即使原引擎因某個 operator 失敗而使用 fallback 完成查詢，只要 backend request log 存在 HTTP error 或 cache generation error，此 runner 仍將 run 標成 failed，保留輸出供診斷，不把這次執行當成有效 baseline。
 
 啟動器只終止自己建立的 process groups，不使用 stop_servers 掃描整台主機；port 被占用會拒絕啟動。缺少 key、OOM、readiness timeout 均保留 failure 與非零退出碼。預設不使用 privileged 容器。

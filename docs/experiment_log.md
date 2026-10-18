@@ -30,4 +30,6 @@
 
 完整 FA2 編譯包含大量不需要的 backward kernels；改用 upstream 提供的 FLASHATTENTION_DISABLE_BACKWARD 選項建置推論映像，保留全部 forward head dimensions。尚未完成的完整 image／FA kernel 驗證仍須以實際 CI 與 GPU 輸出為準。
 
+本地暫存清理：只按已核對的 25 個 cache ID 刪除本次建置 cache（20.79GB），並移除本次下載的 CUDA devel image／暫用 dependencies image；既有 SonarQube container 與四個 volumes 保留。Docker 停止後使用 Windows Virtual Disk API 離線壓縮 Docker data VHDX，回傳成功，檔案由約 50.8GB 縮至約 10.9GB；Docker 已重啟並核對原 container／volumes，C 槽約 43GiB 可用。
+
 此文件會隨本次實際驗證結果更新；不把建置成功當成論文復現成功。
