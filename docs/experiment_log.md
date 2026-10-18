@@ -15,10 +15,13 @@
 - CUDA devel/runtime base 固定 digest；FA2 sdist 固定 SHA256，無 torch2.9 對應 wheel，因此從 source 編譯。
 - 程式已推送 [GitHub 專案](https://github.com/hazcashi/SemBench-Stretto_experiment)。首次 push 被 scanner 將 upstream 註解的模型類別名誤認為 Mistral key；核對並改寫該註解後成功，未繞過保護規則。
 - 已透過既有 GitHub 登入手動 dispatch 映像 workflow。既有 PAT 沒有 packages scope，因此由 workflow 的 GITHUB_TOKEN 執行 GHCR publish。
+- 使用本次建立的 Linux/Python3.12 dependencies container，安裝 pinned kvpress 並對目前原始碼執行 root 測試：**9 passed in 7.94s**，無 skip。真實工具箱只含兩個指定文字模型，upstream 預設工具箱仍包含原模型。
+- 同一組已鎖定依賴的 GPU container：torch 2.9.1+cu128、CUDA 12.8、`torch.cuda.is_available()=True`；RTX 4060 Laptop 的小型 CUDA tensor 計算通過。此驗證不代表 48GB 雙模型驗收。
+- DuckDB 1.3.0 `INSTALL vss; LOAD vss;` 實測通過；原始 `KvTextQaModelWrapper` 與 modified kvpress imports 通過。
 
 執行中／待確認：
 
-- 本地完整映像建置、Docker 內 toolbox 測試及 CUDA tensor smoke。
+- 本地完整映像建置與 FlashAttention GPU kernel smoke；toolbox／一般 CUDA tensor smoke 已通過。
 - GHCR workflow 執行與最終 image digest（未成功前不提供虛構 pull 位址）。
 - HF gated access / OpenAI 小額實際請求：使用者尚未提供憑證，未執行。
 - 48GB GPU：個別模型、雙模型共存、實際 query／benchmark、GPU trace，皆尚未驗證。
