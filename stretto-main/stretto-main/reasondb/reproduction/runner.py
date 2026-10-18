@@ -56,6 +56,17 @@ def doctor(profile):
         raise RuntimeError("Docker must expose exactly one CUDA GPU (--gpus device=0)")
     if torch.cuda.get_device_properties(0).total_memory < 44 * 1024**3:
         raise RuntimeError("This dual-model experiment requires approximately 48GB VRAM")
+    # Availability alone does not prove that the installed CUDA extensions launch.
+    from flash_attn import flash_attn_func
+    if (torch.ones(1, device="cuda") + 1).item() != 2:
+        raise RuntimeError("CUDA tensor smoke failed")
+    qk = torch.zeros((1, 8, 2, 128), dtype=torch.bfloat16, device="cuda")
+    value = torch.ones_like(qk)
+    output = flash_attn_func(qk, qk, value, causal=True)
+    torch.cuda.synchronize()
+    if not torch.allclose(output, value):
+        raise RuntimeError("FlashAttention BF16/head_dim=128 smoke failed")
+    del qk, value, output
     root = Path(os.environ["HF_HOME"])
     root.mkdir(parents=True, exist_ok=True)
     free = shutil.disk_usage(root).free / 1024**3
@@ -63,6 +74,8 @@ def doctor(profile):
         raise RuntimeError(f"Only {free:.1f}GiB free; need {profile['min_free_disk_gib']}GiB")
     access = check_access(profile)
     return {"status": "passed", "gpu": torch.cuda.get_device_name(0), "free_disk_gib": free,
+            "compute_capability": torch.cuda.get_device_capability(0),
+            "cuda_tensor_smoke": "passed", "flash_attention_smoke": "passed",
             "cuda": torch.version.cuda, "torch": torch.__version__, "access": access,
             "nvidia_smi": command_output(["nvidia-smi"])}
 

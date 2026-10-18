@@ -34,4 +34,6 @@
 
 此文件會隨本次實際驗證結果更新；不把建置成功當成論文復現成功。
 
+租借後 `doctor` 已補上真正的 CUDA tensor 及 FlashAttention BF16/head-dim 128 kernel smoke，通過才進入 HF／API／模型下載階段；這項最終映像 kernel 檢查仍待 48GB GPU 執行，未以本地前置 tensor smoke 代替。
+
 服務重啟補查：在 Linux container 重現 server 主動關閉連線後的 `TIME_WAIT`，未設 `SO_REUSEADDR` 的埠檢查回傳 EADDRINUSE，即使沒有服務在 listen。Linux probe 已改為與 HTTP server 相同的重用選項；Windows 保留原行為，避免平台語意差異。新增回歸測試驗證同一埠能重新啟動，既有占用埠拒絕測試也保留。輕量 Linux/Python3.12 測試結果為 **7 passed、3 skipped**（未安裝 torch/OpenAI/HF）；完整依賴版本需在最終映像中跑滿 10 項。此修正會在首次完整建置成功後，以相同已驗證依賴層發佈新版程式映像。

@@ -22,7 +22,7 @@ bash scripts/reproduce.sh run
 
 本專案選擇公開 GHCR。首次發佈後，擁有者須在 [套件頁面](https://github.com/users/hazcashi/packages/container/package/sembench-stretto_experiment) 的 Package settings → Change visibility 選 Public；以實際設定與匿名驗證結果為準。可用 `python scripts/verify_public_image.py` 檢查固定 digest，不讀取任何本機登入憑證，也不下載整個映像。若尚無 `docker/image.txt`，可傳入 workflow artifact 中的完整 digest 作為參數。
 
-doctor：確認單張可見 GPU、CUDA、約 48GB VRAM、100GiB free、兩模型 config/tokenizer 權限，以及上述三種 OpenAI model 的實際小額存取；會產生少量 API 費用。沒有 token 時會立即指出缺少的變數，不下載權重。
+doctor：確認單張可見 GPU、CUDA、約 48GB VRAM、100GiB free、兩模型 config/tokenizer 權限，以及上述三種 OpenAI model 的實際小額存取；會產生少量 API 費用。會實際執行小型 CUDA tensor 計算與 BF16／head-dim 128 FlashAttention kernel，確認 extension 可以啟動，並記錄 compute capability。沒有 token 時會指出缺少的變數，不下載權重。
 
 run：重新做 preflight，下載固定 revision 的 safetensors，生成固定資料子集，先各別測試 3B 和 8B，再啟動雙模型及文字 embedding，透過 upstream prepare 生成兩種 cr0.8 caches。之後跑自然語言 smoke query、Rotowire 原固定 query，以及 vanilla 8B silver reference。benchmark 保留原固定 logical plan；smoke 才測真實 NL planner。原固定 query 集只有一個，不是論文 sweep。
 
