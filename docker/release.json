@@ -1,0 +1,22 @@
+{
+  "image": "ghcr.io/hazcashi/sembench-stretto_experiment@sha256:5ce3088106b16f1108ef70944e2cb779ee71289310e4a0c1e0dedc9e0d0710b7",
+  "source_revision": "54a648938ee92c243fa4f5fdabd8cf1ae53b9ab3",
+  "platform": "linux/amd64",
+  "platform_manifest": "sha256:4b674c46146e0a46f35995c5767315f502f8680a828558cf73bdcbb1d15f63af",
+  "compressed_layer_bytes": 7456465085,
+  "dependency_image": "ghcr.io/hazcashi/sembench-stretto_experiment@sha256:31a3261a50f83016fe6ac15710667885f876c4816be1443426b23c8410a302f6",
+  "dependency_source_revision": "35a25834a364a53885ee35a262fa402ad4ffb340",
+  "flash_attention_wheel_sha256": "dbef75aa3766c449d90d2faca473b02f6a08c0e0770dd5ae8eeccbc43e3f2592",
+  "validation": {
+    "verified_utc": "2026-10-18T13:08:55.820205+00:00",
+    "anonymous_manifest": "passed",
+    "tests": "10 passed in 4.47s",
+    "dependency_check": "passed",
+    "imports_and_toolbox": "passed",
+    "cuda_flash_kernel": "pending on 48GB GPU",
+    "model_and_api_access": "pending credentials",
+    "dual_model_and_benchmark": "pending on 48GB GPU"
+  },
+  "full_build_url": "https://github.com/hazcashi/SemBench-Stretto_experiment/actions/runs/39120539396",
+  "source_update_url": "https://github.com/hazcashi/SemBench-Stretto_experiment/actions/runs/39129558557"
+}

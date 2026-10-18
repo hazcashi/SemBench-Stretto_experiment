@@ -19,16 +19,15 @@
 - 同一組已鎖定依賴的 GPU container：torch 2.9.1+cu128、CUDA 12.8、`torch.cuda.is_available()=True`；RTX 4060 Laptop 的小型 CUDA tensor 計算通過。此驗證不代表 48GB 雙模型驗收。
 - DuckDB 1.3.0 `INSTALL vss; LOAD vss;` 實測通過；原始 `KvTextQaModelWrapper` 與 modified kvpress imports 通過。
 
-執行中／待確認：
+尚待確認：
 
-- 本地完整映像建置與 FlashAttention GPU kernel smoke；toolbox／一般 CUDA tensor smoke 已通過。
-- GHCR workflow 執行與最終 image digest（未成功前不提供虛構 pull 位址）。
+- 最終映像的 FlashAttention GPU kernel smoke；CPU 匯入／toolbox 已通過，一般 CUDA tensor 在本機前置容器通過。
 - HF gated access / OpenAI 小額實際請求：使用者尚未提供憑證，未執行。
 - 48GB GPU：個別模型、雙模型共存、實際 query／benchmark、GPU trace，皆尚未驗證。
 
 第一次互動式 Docker build 在依賴步驟收到 context canceled，並非已通過或套件相容性失敗。後續建置保留 .audit/build.stderr.log 與 inference-build.stderr.log。CPU/GPU 前置驗證完成後，本機磁碟剩約 12GiB，因此停止本地完整建置，改由 GitHub Actions 完成；已確認 Docker buildx 子程序與編譯程序也停止，不只停止父 CLI。
 
-完整 FA2 編譯包含大量不需要的 backward kernels；改用 upstream 提供的 FLASHATTENTION_DISABLE_BACKWARD 選項建置推論映像，保留全部 forward head dimensions。尚未完成的完整 image／FA kernel 驗證仍須以實際 CI 與 GPU 輸出為準。
+完整 FA2 編譯包含大量不需要的 backward kernels；改用 upstream 提供的 FLASHATTENTION_DISABLE_BACKWARD 選項建置推論映像，保留全部 forward head dimensions。完整 image／FA 匯入已由 CI 通過；GPU kernel 驗證仍須以租借主機輸出為準。
 
 本地暫存清理：只按已核對的 25 個 cache ID 刪除本次建置 cache（20.79GB），並移除本次下載的 CUDA devel image／暫用 dependencies image；既有 SonarQube container 與四個 volumes 保留。Docker 停止後使用 Windows Virtual Disk API 離線壓縮 Docker data VHDX，回傳成功，檔案由約 50.8GB 縮至約 10.9GB；Docker 已重啟並核對原 container／volumes，C 槽約 43GiB 可用。
 
@@ -36,4 +35,12 @@
 
 租借後 `doctor` 已補上真正的 CUDA tensor 及 FlashAttention BF16/head-dim 128 kernel smoke，通過才進入 HF／API／模型下載階段；這項最終映像 kernel 檢查仍待 48GB GPU 執行，未以本地前置 tensor smoke 代替。
 
-服務重啟補查：在 Linux container 重現 server 主動關閉連線後的 `TIME_WAIT`，未設 `SO_REUSEADDR` 的埠檢查回傳 EADDRINUSE，即使沒有服務在 listen。Linux probe 已改為與 HTTP server 相同的重用選項；Windows 保留原行為，避免平台語意差異。新增回歸測試驗證同一埠能重新啟動，既有占用埠拒絕測試也保留。輕量 Linux/Python3.12 測試結果為 **7 passed、3 skipped**（未安裝 torch/OpenAI/HF）；完整依賴版本需在最終映像中跑滿 10 項。此修正會在首次完整建置成功後，以相同已驗證依賴層發佈新版程式映像。
+服務重啟補查：在 Linux container 重現 server 主動關閉連線後的 `TIME_WAIT`，未設 `SO_REUSEADDR` 的埠檢查回傳 EADDRINUSE，即使沒有服務在 listen。Linux probe 已改為與 HTTP server 相同的重用選項；Windows 保留原行為，避免平台語意差異。新增回歸測試驗證同一埠能重新啟動，既有占用埠拒絕測試也保留。輕量 Linux/Python3.12 測試為 **7 passed、3 skipped**（未安裝 torch/OpenAI/HF）；修正版最終映像則以完整依賴跑滿 **10 passed in 4.47s**。
+
+### 最終打包驗證
+
+- [完整建置 CI](https://github.com/hazcashi/SemBench-Stretto_experiment/actions/runs/39120539396) 成功：Python3.12／CUDA12.8.1／torch2.9.1+cu128／FA2 2.8.3.post2，FA source 編譯約 7,201 秒；`pip check`、DuckDB vss、FA／kvpress 匯入、真實工具箱與當時的 9 項測試通過。
+- [修正版 CI](https://github.com/hazcashi/SemBench-Stretto_experiment/actions/runs/39129558557) 成功：核對基底 revision 與依賴輸入未變，保留同一已編譯環境，加入 Linux 重啟修正及 GPU preflight；資料 SHA、依賴／匯入／工具箱及 **10 項測試全部通過，無 skip**。
+- 最終 source revision：`54a648938ee92c243fa4f5fdabd8cf1ae53b9ab3`。固定映像：`ghcr.io/hazcashi/sembench-stretto_experiment@sha256:5ce3088106b16f1108ef70944e2cb779ee71289310e4a0c1e0dedc9e0d0710b7`。
+- 匿名 GHCR token／manifest 請求成功，SHA256 與 Linux/amd64 平台已核對；未使用 GitHub／Docker 登入憑證。壓縮 layers 合計 7,456,465,085 bytes，解壓空間另計。
+- `docker/image.txt` 為啟動器預設；`docker/release.json` 保存來源、依賴基底、版本與 CI 證據。程式已打包完成，**尚未完成模型／API 存取及 48GB GPU 實驗驗收，也不宣稱論文復現完成**。

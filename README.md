@@ -4,13 +4,15 @@
 
 這是重設模型與環境後的最小復現，尚未代表論文完整結果。查詢規劃、metadata 與部分程式生成仍會使用 OpenAI API。
 
-先閱讀 [部署指南](docs/deployment.md)、[驗證紀錄](docs/experiment_log.md)、[架構審查](docs/reproduction_plan.md)。預建映像的可用狀態以驗證紀錄為準；只有建置及發佈成功後才有可下載的 GHCR digest。
+公開 GHCR 預建映像已發佈並通過匿名存取驗證；啟動器預設使用 [固定 digest](docker/image.txt)。最終映像的 10 項測試、依賴與匯入檢查已通過；HF／API 存取及 48GB GPU 上的雙模型、query／benchmark 仍待驗證。
+
+先閱讀 [部署指南](docs/deployment.md)、[驗證紀錄](docs/experiment_log.md)、[架構審查](docs/reproduction_plan.md)。版本與 CI 證據見 [release.json](docker/release.json)。
 
 ```bash
 git clone --recurse-submodules https://github.com/hazcashi/SemBench-Stretto_experiment.git
 cd SemBench-Stretto_experiment
 cp .env.example .env
-# 填入兩個 token 與已發佈的 STRETTO_IMAGE=digest
+# 填入 HF_TOKEN、OPENAI_API_KEY；其餘可保留預設
 bash scripts/reproduce.sh doctor
 bash scripts/reproduce.sh run
 ```

@@ -28,8 +28,9 @@
 - [x] 比對 upstream tree，固定 upstream/submodules，保存 provenance。
 - [x] 建立 profile、文字工具箱、deterministic subset、runner 與失敗紀錄。
 - [x] 建立 Dockerfile、doctor/run/profile/access 入口與 GHCR workflow；完整映像建置驗收另列。
-- [x] CPU：語法、依賴、registry/profile 路由、無影像 operator、子集關聯、readiness/cleanup、匯入；容器內 9 tests 通過。
-- [ ] 完整 Docker image build 與 FlashAttention kernel 驗證（一般 CUDA tensor 已在本機容器通過）。
+- [x] CPU：語法、依賴、registry/profile 路由、無影像 operator、子集關聯、readiness/cleanup／Linux 埠重啟、匯入；最終映像內 10 tests 通過。
+- [x] 完整 Docker image build、FlashAttention 編譯／匯入、公開 GHCR 發佈與匿名 digest 驗證；固定版本見 `docker/release.json`。
+- [ ] 最終映像的 CUDA／FlashAttention GPU kernel smoke（一般 CUDA tensor 已在本機前置容器通過）；由租借後的 doctor 執行。
 - [ ] 有權限後：HF 兩模型 config/tokenizer 存取，OpenAI 實際小額請求。
 - [ ] 48GB GPU：nvidia-smi / torch CUDA；3B 單獨、8B 單獨、雙模型；query；固定 benchmark；backend trace。
 
@@ -37,7 +38,7 @@
 
 BF16 11B 權重約 22GB（20.5GiB），另計 CUDA contexts、KV、activation、embedding 與 allocator。48GB 是目標而非已測保證；先限 batch，記錄實際峰值，OOM 必須失敗不靜默量化或 offload。建議 RAM 64GB、磁碟至少 100GiB 可用給最小部署，完整 sweep 可能數百 GB。權重下載約 22GB 加 cache；100 篇 cr=0.8 KV 的真實大小由 token 長度與模型層數決定，量測後才擴大。
 
-本機 RTX 4060 Laptop 8GiB、driver 592.82，不能驗收雙模型；C 槽約 62GiB free，建置前檢查空間並限制編譯併行。不得刪除既有 Docker 資料以騰空間。模型權限與 API key 尚未提供；GHCR image 未建成/上傳前不聲稱可 pull。
+本機 RTX 4060 Laptop 8GiB、driver 592.82，不能驗收雙模型；初始 C 槽約 62GiB free，本地前置檢查後改由 GitHub Actions 完成完整建置。本次暫存清理與磁碟狀態見 experiment_log；未刪除既有 Docker container／volumes。模型權限與 API key 尚未提供。GHCR image 已建成並通過匿名 manifest 驗證；實際 GPU kernel／模型／實驗仍未驗收。
 
 ### 固定工作量的本地實測（非模型推論結果）
 

@@ -5,7 +5,7 @@
 1. Hugging Face 分別申請 `meta-llama/Llama-3.1-8B-Instruct` 與 `meta-llama/Llama-3.2-3B-Instruct` 的 gated access，接受授權，建立 read token。
 2. 準備 OpenAI API key 與可用額度。原始程式使用 `gpt-4o-2024-11-20`、`gpt-4o-mini-2024-07-18`、`text-embedding-3-small`，不只在 query planning 使用 API。
 3. 確認供應商給的是可執行 Docker 的 Linux 主機，NVIDIA driver、NVIDIA Container Toolkit 與 Docker daemon 可用；SSH 本身不能證明具備這些條件。不在 GPU container 內假設 Docker-in-Docker。
-4. 選約 48GB GPU、建議 RAM 64GB，最小部署預留至少 100GiB 可用磁碟。完整 sweep 另估。首次模型下載與 cache 建立仍需時間；預建 image 只省去環境安裝。
+4. 選約 48GB GPU、建議 RAM 64GB。映像拉取完成後，資料掛載位置仍須至少 100GiB 可用磁碟。映像壓縮 layers 約 7.46GB，Docker 儲存與解壓空間另外計算；若 Docker 與 data 共用磁碟，不能只預留 100GiB 給整台主機。完整 sweep 另估。首次模型下載與 cache 建立仍需時間；預建 image 只省去環境安裝。
 
 ## 使用已發佈映像
 
@@ -13,14 +13,14 @@
 git clone --recurse-submodules https://github.com/hazcashi/SemBench-Stretto_experiment.git
 cd SemBench-Stretto_experiment
 cp .env.example .env
-# 編輯 .env：HF_TOKEN、OPENAI_API_KEY、STRETTO_IMAGE=ghcr.io/...@sha256:...
+# 編輯 .env：HF_TOKEN、OPENAI_API_KEY；其餘可保留預設
 bash scripts/reproduce.sh doctor
 bash scripts/reproduce.sh run
 ```
 
-`STRETTO_IMAGE` 必須是實際建成的 tag/digest。目前是否已發佈見 experiment_log；不要把示意 placeholder 當可用映像。發佈後可把 digest 寫入 `docker/image.txt`，供所有 checkout 預設使用。GHCR 新套件預設 private；可在 package settings 調整為 public，或在租借主機用具 `read:packages` 權限的 token 先執行 `docker login ghcr.io`，不要將密碼放進腳本或 Git。GitHub 網站／Git 的登入不等同有 GHCR 權限，參見 [GitHub 官方說明](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)。
+啟動器預設使用 `docker/image.txt` 中已發佈、通過匿名驗證的固定 digest；`.env` 的 `STRETTO_IMAGE` 保持空白即可。需要覆寫時，必須填實際建成的 tag/digest。版本、依賴基底與 CI 證據見 [release.json](../docker/release.json)。
 
-本專案選擇公開 GHCR。首次發佈後，擁有者須在 [套件頁面](https://github.com/users/hazcashi/packages/container/package/sembench-stretto_experiment) 的 Package settings → Change visibility 選 Public；以實際設定與匿名驗證結果為準。可用 `python scripts/verify_public_image.py` 檢查固定 digest，不讀取任何本機登入憑證，也不下載整個映像。若尚無 `docker/image.txt`，可傳入 workflow artifact 中的完整 digest 作為參數。
+本專案的 [GHCR 套件](https://github.com/users/hazcashi/packages/container/package/sembench-stretto_experiment) 已確認可匿名讀取，不需要 `docker login ghcr.io`。可用 `python scripts/verify_public_image.py` 重查固定 digest；它不讀取本機登入憑證，也不下載整個映像。若另建私人套件，才需要具 `read:packages` 的 token；GitHub 網站／Git 登入不等同 GHCR 權限，參見 [GitHub 官方說明](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)。
 
 doctor：確認單張可見 GPU、CUDA、約 48GB VRAM、100GiB free、兩模型 config/tokenizer 權限，以及上述三種 OpenAI model 的實際小額存取；會產生少量 API 費用。會實際執行小型 CUDA tensor 計算與 BF16／head-dim 128 FlashAttention kernel，確認 extension 可以啟動，並記錄 compute capability。沒有 token 時會指出缺少的變數，不下載權重。
 
