@@ -26,6 +26,8 @@
 - HF gated access / OpenAI 小額實際請求：使用者尚未提供憑證，未執行。
 - 48GB GPU：個別模型、雙模型共存、實際 query／benchmark、GPU trace，皆尚未驗證。
 
-第一次互動式 Docker build 在依賴步驟收到 context canceled，並非已通過或套件相容性失敗。已改用隱藏背景 build process 與 .audit/build.stderr.log 保存完整輸出；不刪除使用者既有 Docker image 或 volume。
+第一次互動式 Docker build 在依賴步驟收到 context canceled，並非已通過或套件相容性失敗。後續建置保留 .audit/build.stderr.log 與 inference-build.stderr.log。CPU/GPU 前置驗證完成後，本機磁碟剩約 12GiB，因此停止本地完整建置，改由 GitHub Actions 完成；已確認 Docker buildx 子程序與編譯程序也停止，不只停止父 CLI。
+
+完整 FA2 編譯包含大量不需要的 backward kernels；改用 upstream 提供的 FLASHATTENTION_DISABLE_BACKWARD 選項建置推論映像，保留全部 forward head dimensions。尚未完成的完整 image／FA kernel 驗證仍須以實際 CI 與 GPU 輸出為準。
 
 此文件會隨本次實際驗證結果更新；不把建置成功當成論文復現成功。

@@ -41,7 +41,7 @@ docker push ghcr.io/hazcashi/sembench-stretto_experiment:YOUR_COMMIT
 
 保留 push 回傳的 digest，使用 `ghcr.io/hazcashi/sembench-stretto_experiment@sha256:...`。也可手動觸發 GitHub Actions 的 Build and publish baseline image；輸出 artifact `immutable-image-reference/image.txt`。沒有自動 GPU CI。
 
-Dockerfile 以 Python 3.12、CUDA 12.8.1、torch 2.9.1+cu128、torchvision 0.24.1+cu128、FA2 2.8.3.post2 建置。依賴 lock 固定 resolver 結果及 hashes。此 FA2 release 無 torch2.9 的對應 wheel，會以單一編譯工作編譯，以免用 ABI 不相容的 torch2.8 wheel。支援 Ampere/Ada 的編譯架構；其他 GPU 世代要另外驗證。
+Dockerfile 以 Python 3.12、CUDA 12.8.1、torch 2.9.1+cu128、torchvision 0.24.1+cu128、FA2 2.8.3.post2 建置。依賴 lock 固定 resolver 結果及 hashes。此 FA2 release 無 torch2.9 的對應 wheel，會以單一編譯工作編譯，以免用 ABI 不相容的 torch2.8 wheel。使用 upstream 的 `FLASHATTENTION_DISABLE_BACKWARD` 編譯選項，保留全部 forward head dimensions，只供推論；不適用需要 attention autograd 的模型訓練。此選項記錄於 run manifest 的 flash_attention_build。支援 Ampere/Ada 的編譯架構；其他 GPU 世代要另外驗證。
 
 本地 Linux/Windows Docker Desktop 皆可 build，不需要 48GB GPU；需要足夠 RAM/磁碟及下載時間。建置 log 與成功狀態見 experiment_log。
 

@@ -12,6 +12,9 @@ FROM dependencies AS build
 # Torch 2.9 has no matching upstream FA2 wheel in this release. Compile against
 # the exact installed torch/CUDA ABI, supporting Ampere and Ada (48GB targets).
 ENV MAX_JOBS=1 NVCC_THREADS=1 TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9" FLASH_ATTN_CUDA_ARCHS=80 FLASH_ATTENTION_FORCE_BUILD=TRUE
+# This is an inference image. Upstream's documented compile-time switch skips
+# autograd kernels; all forward kernels and supported head dimensions are retained.
+ENV CFLAGS=-DFLASHATTENTION_DISABLE_BACKWARD NVCC_PREPEND_FLAGS=-DFLASHATTENTION_DISABLE_BACKWARD
 RUN pip install --no-deps --no-build-isolation "https://files.pythonhosted.org/packages/6c/b1/b77625e3d11260d2bd6a4fc249a4be9a3da97ff848e2222e810c4f0e0211/flash_attn-2.8.3.post2.tar.gz#sha256=d0f9f0b08a986cdeadbffcf5ec8b3a8f514366c68ad1853d3ab061bc83cc340b"
 COPY stretto-main/stretto-main/kvpress /tmp/kvpress
 RUN pip install --no-deps /tmp/kvpress && pip check
@@ -24,7 +27,7 @@ ENV PATH=/opt/venv/bin:$PATH PYTHONUNBUFFERED=1 PYTHONHASHSEED=42 \
     HF_HOME=/data/hf REASONDB_CACHE_DIR=/data/cache STRETTO_DATA_ROOT=/data \
     STRETTO_RESULTS_ROOT=/results CUDA_VISIBLE_DEVICES=0 KV_CACHE_PIN_GB=0 \
     TOKENIZERS_PARALLELISM=false PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
-    OMP_NUM_THREADS=4
+    OMP_NUM_THREADS=4 STRETTO_FLASH_BUILD=fa2-2.8.3.post2-sm80-no-backward
 ARG SOURCE_REVISION=uncommitted-audited-source
 LABEL org.opencontainers.image.source="https://github.com/hazcashi/SemBench-Stretto_experiment" \
       org.opencontainers.image.revision=$SOURCE_REVISION

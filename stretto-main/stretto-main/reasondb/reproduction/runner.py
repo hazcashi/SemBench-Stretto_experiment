@@ -241,6 +241,7 @@ def run(profile, profile_path, run_dir, tracing=False):
                 "inference_max_new_tokens": {"boolean": 4, "extract": 64},
                 "request_concurrency": 1,
                 "gpu_model_dtype": "bfloat16",
+                "flash_attention_build": os.environ.get("STRETTO_FLASH_BUILD"),
                 "optimizer_device": "cpu",
                 "cache_existed_before_run": cache.exists() and any(cache.iterdir()),
                 "prefill_decode_separation": "not separately instrumented; inspect backend trace"}
