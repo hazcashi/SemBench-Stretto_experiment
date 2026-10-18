@@ -1,0 +1,6 @@
+[submodule "palimpzest"]
+	path = palimpzest
+	url = https://github.com/mitdbg/palimpzest.git
+[submodule "kvpress"]
+	path = kvpress
+	url = https://github.com/GabrieleSanmartino/kvpress.git

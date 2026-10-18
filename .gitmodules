@@ -1,0 +1,6 @@
+[submodule "stretto-main/stretto-main/kvpress"]
+	path = stretto-main/stretto-main/kvpress
+	url = https://github.com/GabrieleSanmartino/kvpress.git
+[submodule "stretto-main/stretto-main/palimpzest"]
+	path = stretto-main/stretto-main/palimpzest
+	url = https://github.com/mitdbg/palimpzest.git
