@@ -275,6 +275,15 @@ def run(profile, profile_path, run_dir, tracing=False):
                 for role in ("small", "large"):
                     write_json(run_dir / f"{role}_concurrent.json", smoke_model(profile[role], cache))
                 run_queries(profile, subset_dir, run_dir)
+        backend_errors = []
+        for path in run_dir.glob("*_requests.jsonl"):
+            for line in path.read_text().splitlines():
+                request = json.loads(line)
+                if request["status"] >= 400 or (request.get("inference_stats") or {}).get("n_errors", 0):
+                    backend_errors.append({"log": path.name, "path": request["path"], "status": request["status"]})
+        manifest["backend_errors"] = backend_errors
+        if backend_errors:
+            raise RuntimeError("Backend errors occurred; results are retained but this run is not a validated baseline")
         manifest["status"] = "completed"
     except BaseException as exc:
         manifest["status"] = "failed"
