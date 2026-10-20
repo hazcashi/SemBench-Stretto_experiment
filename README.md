@@ -6,7 +6,7 @@
 
 舊 baseline 的公開 GHCR 映像保留於 [固定 digest](docker/image.txt)，可作為已建好 torch/FlashAttention/kvpress 的依賴基底。**最新的詳細 profiling 在原始碼中，須先建置新版程式映像；舊 digest 不含新功能。** 新版根目錄 CPU 測試於本機 Python3.12 為32 passed、5 skipped；Docker建置、HF/API、48GB GPU雙模型、query/benchmark與Nsight仍需驗收。
 
-從GitHub到租借主機的完整操作見 [租借GPU逐步指南](docs/rented_gpu_quickstart.md)；量測定義見 [profiling](docs/profiling.md)。另有 [部署指南](docs/deployment.md)、[驗證紀錄](docs/experiment_log.md)、[架構審查](docs/reproduction_plan.md)。舊版映像與CI證據見 [release.json](docker/release.json)。
+先完成 [租借前準備與 API 存取驗收](docs/pre_rental_checklist.md)，確認模型授權、API 額度與新版映像。從GitHub到租借主機的完整操作見 [租借GPU逐步指南](docs/rented_gpu_quickstart.md)；量測定義見 [profiling](docs/profiling.md)。另有 [部署指南](docs/deployment.md)、[驗證紀錄](docs/experiment_log.md)、[架構審查](docs/reproduction_plan.md)。舊版映像與CI證據見 [release.json](docker/release.json)。
 
 ```bash
 git clone --recurse-submodules https://github.com/hazcashi/SemBench-Stretto_experiment.git
