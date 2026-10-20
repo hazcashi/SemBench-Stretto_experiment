@@ -44,3 +44,22 @@
 - 最終 source revision：`54a648938ee92c243fa4f5fdabd8cf1ae53b9ab3`。固定映像：`ghcr.io/hazcashi/sembench-stretto_experiment@sha256:5ce3088106b16f1108ef70944e2cb779ee71289310e4a0c1e0dedc9e0d0710b7`。
 - 匿名 GHCR token／manifest 請求成功，SHA256 與 Linux/amd64 平台已核對；未使用 GitHub／Docker 登入憑證。壓縮 layers 合計 7,456,465,085 bytes，解壓空間另計。
 - `docker/image.txt` 為啟動器預設；`docker/release.json` 保存來源、依賴基底、版本與 CI 證據。程式已打包完成，**尚未完成模型／API 存取及 48GB GPU 實驗驗收，也不宣稱論文復現完成**。
+
+## 2026-10-20：詳細 profiling 實作（借用電腦）
+
+- 新增可停用的 forward prefill/decode、cache build prefill、檔案載入／反序列化、H2D/D2H、cache assembly、prefetch/sync wait 記錄；不替換 generate 或改變推論參數。
+- 新增 host/cgroup RAM、程序 RSS/USS/PSS、Linux minor/major faults 與 I/O、request/batch allocator peaks；GPU 無法量測不填假0。
+- 新增 profiling JSONL/CSV/summary；PyTorch trace 改為正式 benchmark 每模型／路徑首個 batch，檢查匯出是否含 GPU events。Nsight 使用獨立映像與 profile-nsys，保存 UM fault 報告；不自動要求 privileged。
+- 本機系統 Python 是3.10.6；其 hashlib.file_digest 不支援造成既有 subset 測試失敗，因此另下載官方免安裝 Python3.12.10 到忽略的 .audit/python312，沒有更改系統 Python。pytest/psutil/requests 安裝於忽略的專案 .venv。
+- 已下載並 SHA256 校驗五份公開 Rotowire CSV，以執行既有子集測試；檔案在忽略的 benchmarks/files，不加入Git。
+- Python3.12.10 執行根目錄 tests：26 passed, 5 skipped（Windows TIME_WAIT一項；缺少torch/OpenAI/HF相關三項；CUDA微型模型一項）。新版 profiling 的CPU測試20項通過。
+- Git Bash 的 bash -n scripts/reproduce.sh、Python compileall、git diff --check 通過。
+- Docker daemon 在這台借用電腦不可連線，沒有建置或發佈新版 image；docker/image.txt 與 release.json 保留原發佈紀錄。Dockerfile.profiling 的實際套件安裝也尚未驗收。
+- 待租借主機：CUDA微型隨機模型開關量測之token一致性、實際100篇查詢、有效GPU trace、Nsight權限與UM collector、三種模式overhead比較。
+
+### GitHub原始碼發布前檢查
+
+- 新增 docs/rented_gpu_quickstart.md，包含 GitHub clone、沿用依賴建置新版程式映像、HF/API設定、CUDA微型測試、run/profile/profile-nsys與結果備份；README改為引導新版映像。
+- 發現原 smoke 題目要求 Yes/No，而 upstream boolean endpoint 明確要求1/0；已對齊為驗證已知真值1，加入6個CPU回歸案例，錯誤/不確定回答仍失敗。
+- Python3.12根目錄測試：32 passed, 5 skipped in 6.33s。Bash語法及git diff --check通過。
+- 此次發布範圍是原始碼/文件，不代表新版Docker映像已建置或48GB GPU已驗收。

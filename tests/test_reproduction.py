@@ -29,6 +29,24 @@ def test_profile_routes_preserve_upstream():
     assert registry.method_config()["kv8B08"] == (profile["large"]["model_name"], .8)
 
 
+@pytest.mark.parametrize("answer,valid", [("1", True), ("0", False), ("10", False),
+                                          ("yes", False), ("Not sure", False), ("", False)])
+def test_model_smoke_uses_boolean_wire_protocol(monkeypatch, tmp_path, answer, valid):
+    requests = pytest.importorskip("requests")
+    from reasondb.reproduction.runner import smoke_model
+    from types import SimpleNamespace
+    def post(url, json, timeout):
+        assert json["boolean"] is True
+        assert "Yes or No" not in json["questions"][0]
+        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"answers": [answer]})
+    monkeypatch.setattr(requests, "post", post)
+    if valid:
+        assert smoke_model({"port": 5014, "model_name": "stub"}, tmp_path)["answers"] == ["1"]
+    else:
+        with pytest.raises(RuntimeError, match="known-answer"):
+            smoke_model({"port": 5014, "model_name": "stub"}, tmp_path)
+
+
 def test_subset_determinism_and_relations(tmp_path):
     source = SOURCE / "reasondb/evaluation/benchmarks/files"
     first = create_subset(source, tmp_path / "a", 100)

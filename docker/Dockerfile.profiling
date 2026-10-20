@@ -1,0 +1,13 @@
+# syntax=docker/dockerfile:1.7
+# Build the updated normal image first. Never derive this from the old release.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+ARG BASE_IMAGE
+ARG NSYS_URL=https://developer.download.nvidia.com/devtools/repos/ubuntu2404/amd64/NsightSystems-linux-cli-public-2026.2.1.210-3763964.deb
+LABEL org.stretto.profiling-base=${BASE_IMAGE} org.stretto.nsight.version="2026.2.1.210"
+ADD ${NSYS_URL} /tmp/nsight-cli.deb
+RUN sha256sum /tmp/nsight-cli.deb > /opt/stretto/nsight-package.sha256 && \
+    apt-get update && apt-get install -y --no-install-recommends /tmp/nsight-cli.deb && \
+    rm -f /tmp/nsight-cli.deb && rm -rf /var/lib/apt/lists/* && \
+    nsys --version > /opt/stretto/nsight-version.txt && \
+    nsys profile --help | grep -- --cuda-um-gpu-page-faults

@@ -20,6 +20,7 @@ import uuid
 from reasondb.reproduction.profile import load_profile
 from reasondb.reproduction.processes import Services
 from reasondb.reproduction.subset import create_subset, TABLES
+from reasondb.reproduction.telemetry import set_stage, summarize
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -92,7 +93,13 @@ def download_models(profile):
 def backend_command(profile_path, role, trace_dir=None):
     command = [sys.executable, "-m", "reasondb.reproduction.backend", "--profile", str(profile_path), "--role", role]
     if trace_dir:
-        command += ["--trace-dir", str(trace_dir)]
+        engine = os.environ.get("STRETTO_TRACE_ENGINE", "torch")
+        command += ["--trace-dir", str(trace_dir), "--trace-engine", engine]
+        if engine == "nsys":
+            from reasondb.reproduction.nsight import command as nsight_command
+            command = nsight_command(command, Path(trace_dir).parent, role)
+    if os.environ.get("STRETTO_DETAILED_PROFILE") == "1":
+        command += ["--detailed"]
     return command
 
 
@@ -100,14 +107,16 @@ def smoke_model(model, cache_dir):
     import requests
     response = requests.post(f"http://127.0.0.1:{model['port']}/text_qa", json={
         "column_name": "reports.report", "texts": ["The home team won the basketball game."],
-        "questions": ["Did the home team win? Answer Yes or No."],
+        "questions": ["Did the home team win?"],
         "boolean": True, "cache_dir": str(cache_dir), "vanilla": True,
         "effective_compression_ratio": 0.0, "materialized_compression_ratio": 0.0,
         "keep_in_memory": False,
     }, timeout=180)
     response.raise_for_status()
     result = response.json()
-    if not result.get("answers") or not str(result["answers"][0]).strip().lower().startswith("yes"):
+    # The upstream boolean endpoint explicitly instructs the model to emit 1/0.
+    # Validate the known true answer using that wire protocol, not Yes/No text.
+    if not result.get("answers") or str(result["answers"][0]).strip() != "1":
         raise RuntimeError(f"{model['model_name']} failed the known-answer smoke test")
     return result
 
@@ -119,14 +128,17 @@ class Sampler:
         self.thread = threading.Thread(target=self.run, daemon=True)
 
     def run(self):
-        import psutil
+        from reasondb.reproduction.resources import ResourceSampler
+        sampler = ResourceSampler()
         with self.path.open("w") as handle:
             while not self.stop.is_set():
                 try:
-                    proc = psutil.Process()
-                    ram = sum(p.memory_info().rss for p in [proc, *proc.children(recursive=True)] if p.is_running())
-                    gpu = command_output(["nvidia-smi", "--query-gpu=timestamp,name,memory.used,memory.total,utilization.gpu", "--format=csv,noheader,nounits"])
-                    handle.write(json.dumps({"at": time.time(), "process_tree_rss_bytes": ram, "gpu_csv": gpu})+"\n")
+                    row = sampler.sample()
+                    try:
+                        row["gpu_csv"] = command_output(["nvidia-smi", "--query-gpu=timestamp,name,memory.used,memory.total,utilization.gpu", "--format=csv,noheader,nounits"])
+                    except Exception as exc:
+                        row["gpu_sampling_error"] = type(exc).__name__
+                    handle.write(json.dumps(row)+"\n")
                     handle.flush()
                 except Exception as exc:
                     handle.write(json.dumps({"sampling_error": type(exc).__name__})+"\n")
@@ -142,6 +154,7 @@ class Sampler:
 
 
 def run_queries(profile, subset_dir, run_dir):
+    set_stage("setup")
     import asyncio
     import torch
     from reasondb.database.database import Database
@@ -187,6 +200,7 @@ def run_queries(profile, subset_dir, run_dir):
         with executor:
             # Actual natural-language planning, with the real guarantees forwarded.
             query = Query("Return the reports where the home team won the game.")
+            set_stage("smoke")
             started = time.perf_counter()
             result, cost = asyncio.run(executor.execute_query(query, logger / "smoke", *guarantees))
             frame = asyncio.run(executor.extract_data(result, logger / "smoke-output"))
@@ -197,6 +211,7 @@ def run_queries(profile, subset_dir, run_dir):
             # Preserve upstream fixed benchmark logical plans, including column labels.
             # Dataset rows are reindexed in this subset: do not use upstream human labels.
             started = time.perf_counter()
+            set_stage("benchmark")
             benchmark = executor.execute_benchmark(ROTOWIRE_QUERIES, *guarantees,
                                                    skip_nl_translation=True, results_cache_dir=None)
             elapsed = time.perf_counter()-started
@@ -218,6 +233,7 @@ def run_queries(profile, subset_dir, run_dir):
             executor.optimizer = label_optimizer
             executor.name, executor.role = "silver_8b", "label"
             try:
+                set_stage("reference")
                 labels = executor.execute_benchmark(ROTOWIRE_QUERIES, skip_nl_translation=True,
                                                     results_cache_dir=None)
             finally:
@@ -240,10 +256,18 @@ def run_queries(profile, subset_dir, run_dir):
             writer.writerows({k: row.get(k) for k in writer.fieldnames} for row in rows)
 
 
-def run(profile, profile_path, run_dir, tracing=False):
+def run(profile, profile_path, run_dir, tracing=False, trace_engine="torch"):
     import torch
     from huggingface_hub import __version__ as hf_version
     cache = Path(os.environ["REASONDB_CACHE_DIR"])
+    profiling_dir = run_dir / "profiling"
+    profiling_dir.mkdir(exist_ok=True)
+    previous_environment = {key: os.environ.get(key) for key in (
+        "STRETTO_STAGE_FILE", "STRETTO_TRACE_ENGINE", "STRETTO_DETAILED_PROFILE")}
+    os.environ["STRETTO_STAGE_FILE"] = str(profiling_dir / "stage.txt")
+    os.environ["STRETTO_TRACE_ENGINE"] = trace_engine
+    os.environ["STRETTO_DETAILED_PROFILE"] = "1" if tracing else "0"
+    set_stage("preflight")
     manifest = {"run_id": run_dir.name, "started_utc": datetime.now(timezone.utc).isoformat(),
                 "status": "running", "profile": profile, "python": platform.python_version(),
                 "torch": torch.__version__, "cuda": torch.version.cuda, "huggingface_hub": hf_version,
@@ -257,28 +281,36 @@ def run(profile, profile_path, run_dir, tracing=False):
                 "flash_attention_build": os.environ.get("STRETTO_FLASH_BUILD"),
                 "optimizer_device": "cpu",
                 "cache_existed_before_run": cache.exists() and any(cache.iterdir()),
-                "prefill_decode_separation": "not separately instrumented; inspect backend trace"}
+                "trace_engine": trace_engine if tracing else "none",
+                "prefill_decode_separation": "forward CUDA events and CPU spans" if tracing else "disabled in baseline",
+                "profiling_overhead": "not yet measured; compare independent runs",
+                "trace_scope": "first benchmark batch per model and route, including optimizer samples"}
     started = time.perf_counter()
     try:
         write_json(run_dir / "manifest.json", manifest)
+        if tracing and trace_engine == "nsys":
+            from reasondb.reproduction.nsight import check_nsys
+            write_json(profiling_dir / "nsight_environment.json", check_nsys())
         write_json(run_dir / "doctor.json", doctor(profile))
         (run_dir / "pip-freeze.txt").write_text(command_output([sys.executable, "-m", "pip", "freeze"]))
         download_models(profile)
         subset_dir = Path(os.environ["STRETTO_DATA_ROOT"]) / profile["cache_namespace"] / "subset"
         manifest["subset"] = create_subset(REPO / "reasondb/evaluation/benchmarks/files", subset_dir, profile["reports_limit"])
-        trace_dir = run_dir / "traces" if tracing else None
+        trace_dir = profiling_dir / "traces" if tracing else None
         if trace_dir:
             trace_dir.mkdir()
         with Sampler(run_dir / "resources.jsonl"):
             # Validate individually before paying for both models' GPU residency.
             for role in ("small", "large"):
                 model = profile[role]
+                set_stage(f"individual_{role}")
                 with Services(run_dir / "services" / f"individual_{role}") as services:
                     status = services.start(role, backend_command(profile_path, role), model["port"],
                                             profile["readiness_timeout_s"], model["model_name"])
                     write_json(run_dir / f"{role}_individual_status.json", status)
                     write_json(run_dir / f"{role}_individual.json", smoke_model(model, cache))
             with Services(run_dir / "services" / "concurrent") as services:
+                set_stage("concurrent_smoke")
                 for role in ("small", "large"):
                     model = profile[role]
                     status = services.start(role, backend_command(profile_path, role, trace_dir), model["port"],
@@ -308,11 +340,26 @@ def run(profile, profile_path, run_dir, tracing=False):
         manifest["total_wall_s"] = time.perf_counter()-started
         manifest["cache_bytes_after_run"] = sum(p.stat().st_size for p in cache.rglob("*") if p.is_file()) if cache.exists() else 0
         write_json(run_dir / "manifest.json", manifest)
+        if (run_dir / "resources.jsonl").exists():
+            shutil.copyfile(run_dir / "resources.jsonl", profiling_dir / "resources.jsonl")
+        try:
+            summarize(profiling_dir)
+            if tracing and trace_engine == "nsys":
+                from reasondb.reproduction.nsight import analyze
+                analyze(profiling_dir)
+        except Exception as exc:
+            (profiling_dir / "summary_limitation.txt").write_text(str(exc), encoding="utf-8")
+        finally:
+            for key, previous in previous_environment.items():
+                if previous is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = previous
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("doctor", "run", "profile", "inspect", "access"))
+    parser.add_argument("action", choices=("doctor", "run", "profile", "profile-nsys", "inspect", "access"))
     parser.add_argument("--config", default="/opt/stretto/configs/single_gpu.json")
     args = parser.parse_args()
     profile = load_profile(args.config)
@@ -341,7 +388,8 @@ def main():
             (run_dir / "failure.txt").write_text(traceback.format_exc(), encoding="utf-8")
             raise
     else:
-        run(profile, args.config, run_dir, tracing=args.action == "profile")
+        run(profile, args.config, run_dir, tracing=args.action in ("profile", "profile-nsys"),
+            trace_engine="nsys" if args.action == "profile-nsys" else "torch")
 
 
 if __name__ == "__main__":

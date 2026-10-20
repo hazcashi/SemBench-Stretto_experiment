@@ -1,3 +1,4 @@
+from reasondb.reproduction.telemetry import request_headers as _profiling_headers
 import logging
 import requests
 import time
@@ -428,6 +429,7 @@ class KvTextQABackend(TextQaBackend):
             return
         response = requests.post(
             f"http://localhost:{PORT_KV_TEXT_QA.get(self._model_id)}/prepare_caches",
+            headers=_profiling_headers(),
             json={
                 "column_name": column.name,
                 "texts": texts,
@@ -597,6 +599,7 @@ class KvTextQABackend(TextQaBackend):
         time_start = time.time()
         response = requests.post(
             f"http://localhost:{PORT_KV_TEXT_QA.get(self._model_id)}/text_qa",
+            headers=_profiling_headers(),
             json={
                 "column_name": column.name,
                 "texts": texts,
@@ -763,6 +766,7 @@ class KvTextQABackend(TextQaBackend):
         time_start = time.time()
         response = requests.post(
             f"http://localhost:{PORT_KV_TEXT_QA.get(self._model_id)}/text_qa_join",
+            headers=_profiling_headers(),
             json={
                 "column_name": column.name,
                 "unique_texts": unique_texts,
@@ -796,6 +800,7 @@ class KvTextQABackend(TextQaBackend):
         """Call /hidden_state and return a list of hidden-state vectors (one per text)."""
         response = requests.post(
             f"http://localhost:{PORT_KV_TEXT_QA.get(self._model_id)}/hidden_state",
+            headers=_profiling_headers(),
             json={
                 "column_name": column.name,
                 "texts": texts,
@@ -840,6 +845,7 @@ class KvTextQABackend(TextQaBackend):
         """
         response = requests.post(
             f"http://localhost:{PORT_KV_TEXT_QA.get(self._model_id)}/hidden_state_similarity",
+            headers=_profiling_headers(),
             json={
                 "left_column_name": left_column.name,
                 "right_column_name": right_column.name,
@@ -884,6 +890,7 @@ class KvTextQABackend(TextQaBackend):
         time_start = time.time()
         response = requests.post(
             f"http://localhost:{PORT_KV_TEXT_QA.get(self._model_id)}/text_qa_direct",
+            headers=_profiling_headers(),
             json={
                 "questions": questions,
                 "contexts": contexts,

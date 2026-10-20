@@ -24,6 +24,16 @@
 
 ## 階段與驗收
 
+### 2026-10-20 詳細 profiling 擴充
+
+- [x] 加入可停用的 prefill/decode forward 計時、cache load/H2D/D2H/assembly/wait spans。
+- [x] 加入程序 RSS/USS/PSS、host/cgroup RAM、Linux faults/I/O、跨 reset 顯存峰值保存。
+- [x] 將限量 trace 移至正式 benchmark 首個實際 batch；區分 stage/phase，CPU-only trace 不當成 GPU 成功。
+- [x] 加入 profile-nsys、獨立 Dockerfile.profiling、UM fault SQLite 摘要與報表匯出等待。
+- [x] CPU 數據契約測試、Python/Bash 語法檢查；詳細結果見 experiment_log。
+- [ ] 新版一般映像及選配 Nsight 映像建置與發佈；舊 release digest 保持不變。
+- [ ] CUDA 微型模型 token 一致性、48GB GPU 真實100篇 workload、Nsight collector/UM faults 支援、overhead 比較。
+
 - [x] 讀取 AGENTS.md 與主要原始碼。
 - [x] 比對 upstream tree，固定 upstream/submodules，保存 provenance。
 - [x] 建立 profile、文字工具箱、deterministic subset、runner 與失敗紀錄。

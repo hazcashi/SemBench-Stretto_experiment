@@ -30,6 +30,7 @@ class Services:
             handle.close()
             raise
         self.children.append((process, handle))
+        process.stretto_nsight = os.path.basename(command[0]) in ("nsys", "nsys.exe")
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if process.poll() is not None:
@@ -51,11 +52,36 @@ class Services:
                 if process.poll() is None:
                     if os.name == "nt":
                         process.terminate()
+                    elif getattr(process, "stretto_nsight", False):
+                        # End Python first; let the Nsight parent finish report export.
+                        import psutil
+                        targets = []
+                        try:
+                            for child in psutil.Process(process.pid).children(recursive=True):
+                                try:
+                                    if any("reasondb.reproduction.backend" in arg for arg in child.cmdline()):
+                                        targets.append(child)
+                                except psutil.Error:
+                                    continue
+                        except psutil.Error:
+                            pass
+                        for child in targets:
+                            try:
+                                child.send_signal(signal.SIGTERM)
+                            except psutil.NoSuchProcess:
+                                pass
+                        if not targets:
+                            process.send_signal(signal.SIGINT)
                     else:
                         os.killpg(process.pid, signal.SIGTERM)
                     try:
-                        process.wait(timeout=15)
+                        # Nsight exports reports when its target exits. Do not kill the
+                        # profiler while it is exporting SQLite/trace data.
+                        process.wait(timeout=120 if getattr(process, "stretto_nsight", False) else 15)
                     except subprocess.TimeoutExpired:
+                        if getattr(process, "stretto_nsight", False):
+                            (self.log_dir / "nsight_export_timeout.txt").write_text(
+                                "Nsight did not finish exporting within 120s; output may be incomplete.")
                         if os.name == "nt":
                             process.kill()
                         else:

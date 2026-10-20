@@ -1,5 +1,7 @@
 # 從租借主機到最小實驗
 
+**目前最新原始碼請優先依照 [租借GPU逐步指南](rented_gpu_quickstart.md)**，從GitHub clone並沿用已建好的依賴重建新版程式映像。下方「使用已發佈映像」保留舊baseline流程。
+
 ## 租借前
 
 1. Hugging Face 分別申請 `meta-llama/Llama-3.1-8B-Instruct` 與 `meta-llama/Llama-3.2-3B-Instruct` 的 gated access，接受授權，建立 read token。
@@ -8,6 +10,8 @@
 4. 選約 48GB GPU、建議 RAM 64GB。映像拉取完成後，資料掛載位置仍須至少 100GiB 可用磁碟。映像壓縮 layers 約 7.46GB，Docker 儲存與解壓空間另外計算；若 Docker 與 data 共用磁碟，不能只預留 100GiB 給整台主機。完整 sweep 另估。首次模型下載與 cache 建立仍需時間；預建 image 只省去環境安裝。
 
 ## 使用已發佈映像
+
+**2026-10-20 新增的詳細 profiling 尚未發佈至固定 digest。** 以下映像仍是舊 baseline；要使用 prefill/decode、詳細資源／缺頁採樣或 `profile-nsys`，請依 [profiling.md](profiling.md) 建置新版一般映像與選配 Nsight 映像，設定 `STRETTO_IMAGE`／`STRETTO_NSYS_IMAGE`。修改本地 checkout 不會更新容器內程式。
 
 ```bash
 git clone --recurse-submodules https://github.com/hazcashi/SemBench-Stretto_experiment.git

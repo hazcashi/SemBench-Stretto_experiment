@@ -1,3 +1,4 @@
+from reasondb.reproduction import telemetry as _probe
 import argparse
 import json
 import yaml
@@ -754,13 +755,13 @@ class KvTextQaModelWrapper(KVCachingBackendBase):
                 scores = scoring_press.score(
                     module, hidden_states, keys, values, output[1], kwargs
                 )
-                layer_scores[module.layer_idx] = scores.detach().cpu()
+                layer_scores[module.layer_idx] = _probe.transfer(scores.detach(), "cpu")
                 layer_modules[module.layer_idx] = module
                 return output
 
             # ---- 4. Run a single prefill ----
             first_device = next(self.pipe.model.parameters()).device
-            context_ids = context_ids.to(first_device)
+            context_ids = _probe.transfer(context_ids, first_device)
             full_cache = DynamicCache()
 
             for layer in self.pipe.model.model.layers:
@@ -780,7 +781,7 @@ class KvTextQaModelWrapper(KVCachingBackendBase):
 
             try:
                 with torch.inference_mode():
-                    self.pipe.model.model(
+                    _probe.prefill(self.pipe.model.model,
                         input_ids=context_ids,
                         past_key_values=full_cache,
                         use_cache=True,
@@ -813,7 +814,7 @@ class KvTextQaModelWrapper(KVCachingBackendBase):
                 and not os.path.exists(scores_file)
                 and layer_scores
             ):
-                torch.save(layer_scores, scores_file)
+                _probe.save_cache(layer_scores, scores_file)
                 logger.info(f"Saved scores → {scores_file}")
 
             # ---- 6. Compute and save per-CR binary masks ----
@@ -857,7 +858,7 @@ class KvTextQaModelWrapper(KVCachingBackendBase):
                     layer_masks[layer_idx] = mask
 
                 # Save mask + metadata sidecar
-                torch.save(layer_masks, mask_file)
+                _probe.save_cache(layer_masks, mask_file)
                 meta = {
                     "compression_ratio": cr,
                     "seq_len": full_seq_len,
@@ -1045,14 +1046,14 @@ class KvTextQaModelWrapper(KVCachingBackendBase):
                 scores = scoring_press.score(
                     module, hidden_states, keys, values, output[1], kwargs
                 )
-                layer_scores[module.layer_idx] = scores.detach().cpu()
+                layer_scores[module.layer_idx] = _probe.transfer(scores.detach(), "cpu")
                 layer_modules[module.layer_idx] = module
                 # Return output unchanged — keep full uncompressed cache
                 return output
 
             # ---- 4. Run a single prefill ----
             first_device = next(self.pipe.model.parameters()).device
-            context_ids = context_ids.to(first_device)
+            context_ids = _probe.transfer(context_ids, first_device)
             full_cache = DynamicCache()
 
             # Set rotary embeddings (required by scoring methods)
@@ -1077,7 +1078,7 @@ class KvTextQaModelWrapper(KVCachingBackendBase):
                     f"→ generating {len(compression_ratios)} cache(s)"
                 )
                 with torch.inference_mode():
-                    self.pipe.model.model(
+                    _probe.prefill(self.pipe.model.model,
                         input_ids=context_ids,
                         past_key_values=full_cache,
                         use_cache=True,
@@ -1161,12 +1162,12 @@ class KvTextQaModelWrapper(KVCachingBackendBase):
             scores = scoring_press.score(
                 module, hidden_states, keys, values, output[1], kwargs
             )
-            layer_scores[module.layer_idx] = scores.detach().cpu()
+            layer_scores[module.layer_idx] = _probe.transfer(scores.detach(), "cpu")
             layer_modules[module.layer_idx] = module
             return output
 
         first_device = next(self.pipe.model.parameters()).device
-        context_ids = context_ids.to(first_device)
+        context_ids = _probe.transfer(context_ids, first_device)
         full_cache = DynamicCache()
         for layer in self.pipe.model.model.layers:
             layer.self_attn.rotary_emb = self.pipe.model.model.rotary_emb
@@ -1178,7 +1179,7 @@ class KvTextQaModelWrapper(KVCachingBackendBase):
         ]
         try:
             with torch.inference_mode():
-                self.pipe.model.model(
+                _probe.prefill(self.pipe.model.model,
                     input_ids=context_ids,
                     past_key_values=full_cache,
                     use_cache=True,
@@ -1506,73 +1507,74 @@ class KvTextQaModelWrapper(KVCachingBackendBase):
             range(0, len(full_prompts), batch_size),
             desc=f"Processing vanilla batches (bs={batch_size})",
         ):
-            batch_prompts = full_prompts[batch_start : batch_start + batch_size]
-            try:
-                inputs = self.tokenizer(
-                    batch_prompts,
-                    return_tensors="pt",
-                    padding=True,
-                )
-                input_len = inputs["input_ids"].shape[1]
-                inputs = {k: v.to(first_device) for k, v in inputs.items()}
-
-                for _i in range(torch.cuda.device_count()):
-                    torch.cuda.reset_peak_memory_stats(_i)
-
-                with torch.no_grad():
-                    generated = self.pipe.model.generate(
-                        **inputs,
-                        max_new_tokens=max_new_tokens,
-                        do_sample=False,
-                        pad_token_id=self.tokenizer.eos_token_id,
-                        output_scores=True,
-                        return_dict_in_generate=True,
+            with _probe.batch("vanilla", batch_start):
+                batch_prompts = full_prompts[batch_start : batch_start + batch_size]
+                try:
+                    inputs = self.tokenizer(
+                        batch_prompts,
+                        return_tensors="pt",
+                        padding=True,
                     )
+                    input_len = inputs["input_ids"].shape[1]
+                    inputs = {k: _probe.transfer(v, first_device) for k, v in inputs.items()}
 
-                logger.debug(
-                    f"batch_start={batch_start} rows={len(batch_prompts)} "
-                    f"input_len(tokens)={input_len}"
-                )
-                for _i in range(torch.cuda.device_count()):
-                    _free, _total = torch.cuda.mem_get_info(_i)
-                    _peak = torch.cuda.max_memory_allocated(_i) / 1e9
-                    _peaks[_i] = max(_peaks.get(_i, 0.0), _peak)
-                    logger.debug(
-                        f"  GPU {_i}: peak_allocated={_peak:.2f} GB "
-                        f"free_after={_free/1e9:.2f} GB"
-                    )
+                    for _i in range(torch.cuda.device_count()):
+                        _probe.reset_peaks(_i)
 
-                logits = generated.scores[0]
-                log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
-                log_odds.extend((log_probs[:, id1] - log_probs[:, id0]).cpu().tolist())
-
-                decoded = self.tokenizer.batch_decode(
-                    generated.sequences[:, input_len:],
-                    skip_special_tokens=True,
-                )
-                answers.extend(decoded)
-
-                del inputs, generated, logits, log_probs
-
-            except Exception as e:
-                if getattr(self, "strict_errors", False):
-                    raise
-                logger.debug(f"EXCEPTION at batch_start={batch_start}: {e}")
-                for _i in range(torch.cuda.device_count()):
-                    try:
-                        _free, _total = torch.cuda.mem_get_info(_i)
-                        logger.debug(
-                            f"  GPU {_i} free at failure: "
-                            f"{_free/1e9:.2f} GB / {_total/1e9:.2f} GB total"
+                    with torch.no_grad():
+                        generated = _probe.generate(self.pipe.model,
+                            **inputs,
+                            max_new_tokens=max_new_tokens,
+                            do_sample=False,
+                            pad_token_id=self.tokenizer.eos_token_id,
+                            output_scores=True,
+                            return_dict_in_generate=True,
                         )
-                    except Exception as _mem_err:
-                        logger.debug(f"  GPU {_i} mem_get_info failed: {_mem_err}")
-                logger.warning(
-                    f"Error processing vanilla batch at index {batch_start}: {e}"
-                )
-                for _ in batch_prompts:
-                    answers.append("Not sure")
-                    log_odds.append(0.0)
+
+                    logger.debug(
+                        f"batch_start={batch_start} rows={len(batch_prompts)} "
+                        f"input_len(tokens)={input_len}"
+                    )
+                    for _i in range(torch.cuda.device_count()):
+                        _free, _total = torch.cuda.mem_get_info(_i)
+                        _peak = torch.cuda.max_memory_allocated(_i) / 1e9
+                        _peaks[_i] = max(_peaks.get(_i, 0.0), _peak)
+                        logger.debug(
+                            f"  GPU {_i}: peak_allocated={_peak:.2f} GB "
+                            f"free_after={_free/1e9:.2f} GB"
+                        )
+
+                    logits = generated.scores[0]
+                    log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
+                    log_odds.extend(_probe.transfer(log_probs[:, id1] - log_probs[:, id0], "cpu").tolist())
+
+                    decoded = self.tokenizer.batch_decode(
+                        generated.sequences[:, input_len:],
+                        skip_special_tokens=True,
+                    )
+                    answers.extend(decoded)
+
+                    del inputs, generated, logits, log_probs
+
+                except Exception as e:
+                    if getattr(self, "strict_errors", False):
+                        raise
+                    logger.debug(f"EXCEPTION at batch_start={batch_start}: {e}")
+                    for _i in range(torch.cuda.device_count()):
+                        try:
+                            _free, _total = torch.cuda.mem_get_info(_i)
+                            logger.debug(
+                                f"  GPU {_i} free at failure: "
+                                f"{_free/1e9:.2f} GB / {_total/1e9:.2f} GB total"
+                            )
+                        except Exception as _mem_err:
+                            logger.debug(f"  GPU {_i} mem_get_info failed: {_mem_err}")
+                    logger.warning(
+                        f"Error processing vanilla batch at index {batch_start}: {e}"
+                    )
+                    for _ in batch_prompts:
+                        answers.append("Not sure")
+                        log_odds.append(0.0)
 
         # Once per request, not per batch: batches reuse identical shapes, so per-batch
         # empty_cache only added a sync + cudaMalloc churn. The end-of-request release
@@ -1817,7 +1819,7 @@ class KvTextQaModelWrapper(KVCachingBackendBase):
                         "index": idx,
                     }, time.perf_counter() - _t0
                 if physical and os.path.exists(physical):
-                    c = torch.load(physical, map_location="cpu", weights_only=False)
+                    c = _probe.load_cache(physical, map_location="cpu", weights_only=False)
                     return {
                         "needs_rerotate": False,
                         "cache": c,
@@ -1848,313 +1850,316 @@ class KvTextQaModelWrapper(KVCachingBackendBase):
             batch_starts,
             desc=f"Processing batches for CR {compression_ratio}",
         ):
-            batch_plans = load_plans[
-                batch_start : min(batch_start + batch_size, len(load_plans))
-            ]
-            batch_questions = all_questions[
-                batch_start : min(batch_start + batch_size, len(load_plans))
-            ]
+            with _probe.batch("kv", batch_start):
+                batch_plans = load_plans[
+                    batch_start : min(batch_start + batch_size, len(load_plans))
+                ]
+                batch_questions = all_questions[
+                    batch_start : min(batch_start + batch_size, len(load_plans))
+                ]
 
-            # Wait for prefetched CPU data (should already be ready since inference ran)
-            _wait_t0 = time.perf_counter()
-            cpu_results = prefetch_future.result()
-            total_load_wait_time += time.perf_counter() - _wait_t0
-            total_disk_load_time += sum(r[1] for r in cpu_results)
+                # Wait for prefetched CPU data (should already be ready since inference ran)
+                _wait_t0 = time.perf_counter()
+                with _probe.span("prefetch_wait"):
+                    cpu_results = prefetch_future.result()
+                total_load_wait_time += time.perf_counter() - _wait_t0
+                total_disk_load_time += sum(r[1] for r in cpu_results)
 
-            # Immediately kick off prefetch of next batch
-            next_start = batch_start + batch_size
-            if next_start < len(load_plans):
-                prefetch_future = prefetch_pool.submit(
-                    _load_batch_to_cpu,
-                    load_plans[
-                        next_start : min(next_start + batch_size, len(load_plans))
-                    ],
-                )
-
-            # Build the GPU caches for VIABLE texts; record errored texts as response slots.
-            # Path A payloads are H2D'd + rerotated here (main thread); Path B payloads are
-            # routed per-layer. `slots` preserves batch order for reassembly.
-            _route_t0 = time.perf_counter()
-            payloads = [r[0] for r in cpu_results]
-            caches = []
-            questions = []
-            slots = []  # ("V",) for a viable text, ("E", orig_index, msg) for an errored one
-            for p, q in zip(payloads, batch_questions):
-                if p.get("error"):
-                    slots.append(("E", p["index"], p["error"]))
-                    continue
-                if p.get("needs_rerotate"):
-                    # Path A: sliced H2D + per-device rerotate — every layer lands directly
-                    # on its own GPU (no whole-cache staging on device 0, no GPU0→GPUn
-                    # second hop), so no scatter pass is needed afterwards.
-                    c = rerotate_payload_sharded(
-                        p["k"], p["v"], p["idx"], rotary_emb, layer_devices
+                # Immediately kick off prefetch of next batch
+                next_start = batch_start + batch_size
+                if next_start < len(load_plans):
+                    prefetch_future = prefetch_pool.submit(
+                        _load_batch_to_cpu,
+                        load_plans[
+                            next_start : min(next_start + batch_size, len(load_plans))
+                        ],
                     )
-                else:
-                    # Path B: physical cache on CPU → copy each layer to its device, OUT
-                    # OF PLACE. `src` may be the pinned, process-wide object shared by
-                    # every query over this text; writing the GPU tensors back into it
-                    # would hand the next query a GPU-resident "CPU cache" that is never
-                    # freed (and that the pin budget counted as CPU bytes).
-                    # H2D mode is the single shared switch (H2D_NON_BLOCKING, default blocking).
-                    src = p["cache"]
-                    c = DynamicCache()
-                    for li in range(_cache_num_layers(src)):
-                        ld = layer_devices[li]
-                        k, v = _cache_kv(src, li)
-                        c.update(
-                            k.to(ld, non_blocking=H2D_NON_BLOCKING),
-                            v.to(ld, non_blocking=H2D_NON_BLOCKING),
-                            li,
+
+                # Build the GPU caches for VIABLE texts; record errored texts as response slots.
+                # Path A payloads are H2D'd + rerotated here (main thread); Path B payloads are
+                # routed per-layer. `slots` preserves batch order for reassembly.
+                _route_t0 = time.perf_counter()
+                payloads = [r[0] for r in cpu_results]
+                caches = []
+                questions = []
+                slots = []  # ("V",) for a viable text, ("E", orig_index, msg) for an errored one
+                for p, q in zip(payloads, batch_questions):
+                    if p.get("error"):
+                        slots.append(("E", p["index"], p["error"]))
+                        continue
+                    if p.get("needs_rerotate"):
+                        # Path A: sliced H2D + per-device rerotate — every layer lands directly
+                        # on its own GPU (no whole-cache staging on device 0, no GPU0→GPUn
+                        # second hop), so no scatter pass is needed afterwards.
+                        c = rerotate_payload_sharded(
+                            p["k"], p["v"], p["idx"], rotary_emb, layer_devices
                         )
-                caches.append(c)
-                questions.append(q)
-                slots.append(("V",))
-            del payloads
+                    else:
+                        # Path B: physical cache on CPU → copy each layer to its device, OUT
+                        # OF PLACE. `src` may be the pinned, process-wide object shared by
+                        # every query over this text; writing the GPU tensors back into it
+                        # would hand the next query a GPU-resident "CPU cache" that is never
+                        # freed (and that the pin budget counted as CPU bytes).
+                        # H2D mode is the single shared switch (H2D_NON_BLOCKING, default blocking).
+                        src = p["cache"]
+                        c = DynamicCache()
+                        for li in range(_cache_num_layers(src)):
+                            ld = layer_devices[li]
+                            k, v = _cache_kv(src, li)
+                            c.update(
+                                _probe.transfer(k, ld, non_blocking=H2D_NON_BLOCKING),
+                                _probe.transfer(v, ld, non_blocking=H2D_NON_BLOCKING),
+                                li,
+                            )
+                    caches.append(c)
+                    questions.append(q)
+                    slots.append(("V",))
+                del payloads
 
-            if not caches:
-                # Whole batch errored — emit markers, no generation.
-                for slot in slots:
-                    _, gidx, msg = slot
-                    answers.append("")
-                    log_odds.append(None)
-                    errors_out[gidx] = msg
-                continue
+                if not caches:
+                    # Whole batch errored — emit markers, no generation.
+                    for slot in slots:
+                        _, gidx, msg = slot
+                        answers.append("")
+                        log_odds.append(None)
+                        errors_out[gidx] = msg
+                    continue
 
-            context_lengths = [_cache_seq_length(c) for c in caches]
-            max_context_len = max(context_lengths)
+                context_lengths = [_cache_seq_length(c) for c in caches]
+                max_context_len = max(context_lengths)
 
-            question_ids_list = []
-            context_ids_list = []
-            padded_context_ids_mask_list = []
+                question_ids_list = []
+                context_ids_list = []
+                padded_context_ids_mask_list = []
 
-            for i, (ctx_len, q) in enumerate(zip(context_lengths, questions)):
-                # Pad context to align with KV cache
-                padded_context_ids = torch.full(
-                    (1, ctx_len),
-                    self.tokenizer.pad_token_id + 1,
-                    device=self.device,
-                )
-                pad_len = max_context_len - ctx_len
-                padding_ids = torch.full(
-                    (1, pad_len), self.tokenizer.pad_token_id, device=self.device
-                )
-                padded_context = torch.cat([padding_ids, padded_context_ids], dim=1)
-                padding_mask = torch.zeros_like(padding_ids)
-                padded_context_mask = torch.ones_like(padded_context_ids)
-                padded_context_ids_mask = torch.cat(
-                    [padding_mask, padded_context_mask], dim=1
-                )
-
-                # Determine question suffix
-                if self.tokenizer.chat_template is None:
-                    question_suffix = "\n"
-                else:
-                    separator = "\n" + "#" * ctx_len if ctx_len > 0 else "\n#"
-                    template_context = self.tokenizer.apply_chat_template(
-                        [{"role": "user", "content": "Example of context" + separator}],
-                        add_generation_prompt=True,
-                        tokenize=False,
-                    )
-                    _, question_suffix = template_context.split(separator)
-
-                # Tokenize question (variable-length)
-                complete_question = q + question_suffix + answer_prefix
-                question_ids = self.tokenizer.encode(
-                    complete_question,
-                    return_tensors="pt",
-                    add_special_tokens=False,
-                ).to(self.device)
-
-                # Store for later padding
-                context_ids_list.append(padded_context)
-                question_ids_list.append(question_ids)
-                padded_context_ids_mask_list.append(padded_context_ids_mask)
-
-            # Compute max question length across batch
-            max_question_len = max(q.shape[1] for q in question_ids_list)
-
-            # Pad questions and build batch tensors
-            batch_input_ids = []
-            batch_attention_masks = []
-
-            for padded_context, question_ids, padded_context_ids_mask in zip(
-                context_ids_list, question_ids_list, padded_context_ids_mask_list
-            ):
-                q_len = question_ids.shape[1]
-                q_pad_len = max_question_len - q_len
-
-                # Pad question to match longest in batch
-                if q_pad_len > 0:
-                    q_padding = torch.full(
-                        (1, q_pad_len),
-                        self.tokenizer.pad_token_id,
+                for i, (ctx_len, q) in enumerate(zip(context_lengths, questions)):
+                    # Pad context to align with KV cache
+                    padded_context_ids = torch.full(
+                        (1, ctx_len),
+                        self.tokenizer.pad_token_id + 1,
                         device=self.device,
                     )
-                    padded_question = torch.cat([q_padding, question_ids], dim=1)
-                    padded_question_mask = torch.cat(
-                        [torch.zeros_like(q_padding), torch.ones_like(question_ids)],
-                        dim=1,
+                    pad_len = max_context_len - ctx_len
+                    padding_ids = torch.full(
+                        (1, pad_len), self.tokenizer.pad_token_id, device=self.device
                     )
-                else:
-                    padded_question = question_ids
-                    padded_question_mask = torch.ones_like(question_ids)
-
-                # Concatenate full input
-                input_ids = torch.cat([padded_context, padded_question], dim=1)
-
-                # Build attention mask: padding + context + padding + question
-                attention_mask = torch.cat(
-                    [padded_context_ids_mask, padded_question_mask], dim=1
-                )
-
-                batch_input_ids.append(input_ids)
-                batch_attention_masks.append(attention_mask)
-
-            # Stack batched tensors
-            batched_inputs = torch.cat(batch_input_ids, dim=0)
-            batched_attention_mask = torch.cat(batch_attention_masks, dim=0)
-
-            # Ensure all async GPU transfers are complete before touching the tensors
-            torch.cuda.synchronize()
-            total_route_time += time.perf_counter() - _route_t0
-
-            # Batch the caches. Iterate layers by index and pull (keys, values) via the
-            # 5.x-safe accessor: iterating a transformers-5.x DynamicCache yields DynamicLayer
-            # objects rather than (key, value) tuples.
-            batched_cache = []
-            for layer_idx in range(_cache_num_layers(caches[0])):
-                layer_kvs = [_cache_kv(c, layer_idx) for c in caches]
-                max_seq_len = max(k.shape[2] for k, _ in layer_kvs)
-                keys_padded = []
-                values_padded = []
-
-                for k, v in layer_kvs:
-                    seq_len = k.shape[2]
-                    pad_len = max_seq_len - seq_len
-                    k_padded = (
-                        torch.nn.functional.pad(k, (0, 0, pad_len, 0))
-                        if pad_len > 0
-                        else k
+                    padded_context = torch.cat([padding_ids, padded_context_ids], dim=1)
+                    padding_mask = torch.zeros_like(padding_ids)
+                    padded_context_mask = torch.ones_like(padded_context_ids)
+                    padded_context_ids_mask = torch.cat(
+                        [padding_mask, padded_context_mask], dim=1
                     )
-                    v_padded = (
-                        torch.nn.functional.pad(v, (0, 0, pad_len, 0))
-                        if pad_len > 0
-                        else v
-                    )
-                    k_padded = k_padded.contiguous()
-                    v_padded = v_padded.contiguous()
-                    keys_padded.append(k_padded)
-                    values_padded.append(v_padded)
 
-                keys_cat = torch.cat(keys_padded, dim=0)
-                values_cat = torch.cat(values_padded, dim=0)
-                batched_cache.append((keys_cat, values_cat))
-
-                # Release this layer's per-item tensors immediately. Unconditional: both
-                # paths build a per-request DynamicCache, so `caches` never holds the
-                # pinned object itself.
-                for c in caches:
-                    _cache_set_kv(c, layer_idx, None, None)
-
-            padded_cache = DynamicCache()
-            for layer_idx, (keys, values) in enumerate(batched_cache):
-                padded_cache.update(keys, values, layer_idx)
-
-            # Move inputs to the device of the embedding layer (first layer)
-            batched_inputs = batched_inputs.to(first_device)
-            batched_attention_mask = batched_attention_mask.to(first_device)
-
-            # Generate responses
-            for _i in range(torch.cuda.device_count()):
-                torch.cuda.reset_peak_memory_stats(_i)
-            try:
-                with torch.no_grad():
-                    generated = self.pipe.model.generate(
-                        input_ids=batched_inputs,
-                        attention_mask=batched_attention_mask,
-                        past_key_values=padded_cache,
-                        pad_token_id=self.tokenizer.eos_token_id,
-                        do_sample=False,
-                        max_new_tokens=max_new_tokens,
-                        output_scores=True,
-                        return_dict_in_generate=True,
-                    )
-            except Exception as e:
-                logger.debug(
-                    f"EXCEPTION during generate() at batch of "
-                    f"{len(caches)} item(s): {e}"
-                )
-                for _i in range(torch.cuda.device_count()):
-                    try:
-                        _free, _total = torch.cuda.mem_get_info(_i)
-                        _peak = torch.cuda.max_memory_allocated(_i) / 1e9
-                        logger.debug(
-                            f"  GPU {_i}: peak_allocated={_peak:.2f} GB "
-                            f"free_at_failure={_free/1e9:.2f} GB / {_total/1e9:.2f} GB total"
+                    # Determine question suffix
+                    if self.tokenizer.chat_template is None:
+                        question_suffix = "\n"
+                    else:
+                        separator = "\n" + "#" * ctx_len if ctx_len > 0 else "\n#"
+                        template_context = self.tokenizer.apply_chat_template(
+                            [{"role": "user", "content": "Example of context" + separator}],
+                            add_generation_prompt=True,
+                            tokenize=False,
                         )
-                    except Exception as e2:
-                        logger.debug(f"  GPU {_i}: could not read memory stats: {e2}")
-                raise
+                        _, question_suffix = template_context.split(separator)
 
-            logger.debug(f"batch of {len(caches)} item(s) succeeded")
-            for _i in range(torch.cuda.device_count()):
-                _free, _total = torch.cuda.mem_get_info(_i)
-                _peak = torch.cuda.max_memory_allocated(_i) / 1e9
-                _peaks[_i] = max(_peaks.get(_i, 0.0), _peak)
-                logger.debug(
-                    f"  GPU {_i}: peak_allocated={_peak:.2f} GB "
-                    f"free_after={_free/1e9:.2f} GB / {_total/1e9:.2f} GB total"
+                    # Tokenize question (variable-length)
+                    complete_question = q + question_suffix + answer_prefix
+                    question_ids = _probe.transfer(self.tokenizer.encode(
+                        complete_question,
+                        return_tensors="pt",
+                        add_special_tokens=False,
+                    ), self.device)
+
+                    # Store for later padding
+                    context_ids_list.append(padded_context)
+                    question_ids_list.append(question_ids)
+                    padded_context_ids_mask_list.append(padded_context_ids_mask)
+
+                # Compute max question length across batch
+                max_question_len = max(q.shape[1] for q in question_ids_list)
+
+                # Pad questions and build batch tensors
+                batch_input_ids = []
+                batch_attention_masks = []
+
+                for padded_context, question_ids, padded_context_ids_mask in zip(
+                    context_ids_list, question_ids_list, padded_context_ids_mask_list
+                ):
+                    q_len = question_ids.shape[1]
+                    q_pad_len = max_question_len - q_len
+
+                    # Pad question to match longest in batch
+                    if q_pad_len > 0:
+                        q_padding = torch.full(
+                            (1, q_pad_len),
+                            self.tokenizer.pad_token_id,
+                            device=self.device,
+                        )
+                        padded_question = torch.cat([q_padding, question_ids], dim=1)
+                        padded_question_mask = torch.cat(
+                            [torch.zeros_like(q_padding), torch.ones_like(question_ids)],
+                            dim=1,
+                        )
+                    else:
+                        padded_question = question_ids
+                        padded_question_mask = torch.ones_like(question_ids)
+
+                    # Concatenate full input
+                    input_ids = torch.cat([padded_context, padded_question], dim=1)
+
+                    # Build attention mask: padding + context + padding + question
+                    attention_mask = torch.cat(
+                        [padded_context_ids_mask, padded_question_mask], dim=1
+                    )
+
+                    batch_input_ids.append(input_ids)
+                    batch_attention_masks.append(attention_mask)
+
+                # Stack batched tensors
+                batched_inputs = torch.cat(batch_input_ids, dim=0)
+                batched_attention_mask = torch.cat(batch_attention_masks, dim=0)
+
+                # Ensure all async GPU transfers are complete before touching the tensors
+                _probe.synchronize()
+                total_route_time += time.perf_counter() - _route_t0
+
+                with _probe.span("cache_assembly", gpu=True):
+                    # Batch the caches. Iterate layers by index and pull (keys, values) via the
+                    # 5.x-safe accessor: iterating a transformers-5.x DynamicCache yields DynamicLayer
+                    # objects rather than (key, value) tuples.
+                    batched_cache = []
+                    for layer_idx in range(_cache_num_layers(caches[0])):
+                        layer_kvs = [_cache_kv(c, layer_idx) for c in caches]
+                        max_seq_len = max(k.shape[2] for k, _ in layer_kvs)
+                        keys_padded = []
+                        values_padded = []
+
+                        for k, v in layer_kvs:
+                            seq_len = k.shape[2]
+                            pad_len = max_seq_len - seq_len
+                            k_padded = (
+                                torch.nn.functional.pad(k, (0, 0, pad_len, 0))
+                                if pad_len > 0
+                                else k
+                            )
+                            v_padded = (
+                                torch.nn.functional.pad(v, (0, 0, pad_len, 0))
+                                if pad_len > 0
+                                else v
+                            )
+                            k_padded = k_padded.contiguous()
+                            v_padded = v_padded.contiguous()
+                            keys_padded.append(k_padded)
+                            values_padded.append(v_padded)
+
+                        keys_cat = torch.cat(keys_padded, dim=0)
+                        values_cat = torch.cat(values_padded, dim=0)
+                        batched_cache.append((keys_cat, values_cat))
+
+                        # Release this layer's per-item tensors immediately. Unconditional: both
+                        # paths build a per-request DynamicCache, so `caches` never holds the
+                        # pinned object itself.
+                        for c in caches:
+                            _cache_set_kv(c, layer_idx, None, None)
+
+                    padded_cache = DynamicCache()
+                    for layer_idx, (keys, values) in enumerate(batched_cache):
+                        padded_cache.update(keys, values, layer_idx)
+
+                # Move inputs to the device of the embedding layer (first layer)
+                batched_inputs = _probe.transfer(batched_inputs, first_device)
+                batched_attention_mask = _probe.transfer(batched_attention_mask, first_device)
+
+                # Generate responses
+                for _i in range(torch.cuda.device_count()):
+                    _probe.reset_peaks(_i)
+                try:
+                    with torch.no_grad():
+                        generated = _probe.generate(self.pipe.model,
+                            input_ids=batched_inputs,
+                            attention_mask=batched_attention_mask,
+                            past_key_values=padded_cache,
+                            pad_token_id=self.tokenizer.eos_token_id,
+                            do_sample=False,
+                            max_new_tokens=max_new_tokens,
+                            output_scores=True,
+                            return_dict_in_generate=True,
+                        )
+                except Exception as e:
+                    logger.debug(
+                        f"EXCEPTION during generate() at batch of "
+                        f"{len(caches)} item(s): {e}"
+                    )
+                    for _i in range(torch.cuda.device_count()):
+                        try:
+                            _free, _total = torch.cuda.mem_get_info(_i)
+                            _peak = torch.cuda.max_memory_allocated(_i) / 1e9
+                            logger.debug(
+                                f"  GPU {_i}: peak_allocated={_peak:.2f} GB "
+                                f"free_at_failure={_free/1e9:.2f} GB / {_total/1e9:.2f} GB total"
+                            )
+                        except Exception as e2:
+                            logger.debug(f"  GPU {_i}: could not read memory stats: {e2}")
+                    raise
+
+                logger.debug(f"batch of {len(caches)} item(s) succeeded")
+                for _i in range(torch.cuda.device_count()):
+                    _free, _total = torch.cuda.mem_get_info(_i)
+                    _peak = torch.cuda.max_memory_allocated(_i) / 1e9
+                    _peaks[_i] = max(_peaks.get(_i, 0.0), _peak)
+                    logger.debug(
+                        f"  GPU {_i}: peak_allocated={_peak:.2f} GB "
+                        f"free_after={_free/1e9:.2f} GB / {_total/1e9:.2f} GB total"
+                    )
+
+                logits = generated.scores[0]  # type: ignore
+                log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
+                id0 = self.tokenizer.convert_tokens_to_ids("0")
+                id1 = self.tokenizer.convert_tokens_to_ids("1")
+                log_probs_0 = log_probs[:, id0]
+                log_probs_1 = log_probs[:, id1]
+                log_odds_1_vs_0 = log_probs_1 - log_probs_0
+
+                # Decode the generated tokens
+                decoded = self.tokenizer.batch_decode(
+                    generated.sequences[:, batched_inputs.shape[1] :],  # type: ignore
+                    skip_special_tokens=True,
                 )
 
-            logits = generated.scores[0]  # type: ignore
-            log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
-            id0 = self.tokenizer.convert_tokens_to_ids("0")
-            id1 = self.tokenizer.convert_tokens_to_ids("1")
-            log_probs_0 = log_probs[:, id0]
-            log_probs_1 = log_probs[:, id1]
-            log_odds_1_vs_0 = log_probs_1 - log_probs_0
+                # Reassemble in batch order: viable texts consume `decoded` in order; errored
+                # texts (Path A failed AND no physical) get a marker so the response stays
+                # aligned to the input texts and the request never crashes.
+                lo_list = _probe.transfer(log_odds_1_vs_0, "cpu").tolist()
+                di = 0
+                for slot in slots:
+                    if slot[0] == "V":
+                        answers.append(decoded[di])
+                        log_odds.append(lo_list[di])
+                        di += 1
+                    else:
+                        _, gidx, msg = slot
+                        answers.append("")
+                        log_odds.append(None)
+                        errors_out[gidx] = msg
 
-            # Decode the generated tokens
-            decoded = self.tokenizer.batch_decode(
-                generated.sequences[:, batched_inputs.shape[1] :],  # type: ignore
-                skip_special_tokens=True,
-            )
-
-            # Reassemble in batch order: viable texts consume `decoded` in order; errored
-            # texts (Path A failed AND no physical) get a marker so the response stays
-            # aligned to the input texts and the request never crashes.
-            lo_list = log_odds_1_vs_0.cpu().tolist()
-            di = 0
-            for slot in slots:
-                if slot[0] == "V":
-                    answers.append(decoded[di])
-                    log_odds.append(lo_list[di])
-                    di += 1
-                else:
-                    _, gidx, msg = slot
-                    answers.append("")
-                    log_odds.append(None)
-                    errors_out[gidx] = msg
-
-            # Cleanup batch resources
-            del (
-                caches,
-                batched_inputs,
-                batched_attention_mask,
-                padded_cache,
-                generated,
-                logits,
-                log_probs,
-            )
-            del (
-                batch_input_ids,
-                batch_attention_masks,
-                context_ids_list,
-                question_ids_list,
-                padded_context_ids_mask_list,
-                batched_cache,
-            )
+                # Cleanup batch resources
+                del (
+                    caches,
+                    batched_inputs,
+                    batched_attention_mask,
+                    padded_cache,
+                    generated,
+                    logits,
+                    log_probs,
+                )
+                del (
+                    batch_input_ids,
+                    batch_attention_masks,
+                    context_ids_list,
+                    question_ids_list,
+                    padded_context_ids_mask_list,
+                    batched_cache,
+                )
 
         prefetch_pool.shutdown(wait=False)
         # Once per request, not per batch (see _run_vanilla_inference for the rationale).
@@ -2392,7 +2397,7 @@ class KvTextQaModelWrapper(KVCachingBackendBase):
 
             # ----------------------------------------------------------------
             first_device = next(self.pipe.model.parameters()).device
-            context_ids = context_ids.to(first_device)
+            context_ids = _probe.transfer(context_ids, first_device)
             # ----------------------------------------------------------------
 
             logger.info(
@@ -2407,7 +2412,7 @@ class KvTextQaModelWrapper(KVCachingBackendBase):
                     # Run the model without the lm head for pre-filling. None of the
                     # supported presses needs attention weights, matching the multi-CR
                     # prefill paths above.
-                    self.pipe.model.model(
+                    _probe.prefill(self.pipe.model.model,
                         input_ids=context_ids,
                         past_key_values=cache,
                         use_cache=True,
@@ -2436,12 +2441,12 @@ class KvTextQaModelWrapper(KVCachingBackendBase):
             # Save cache to disk
             for li in range(_cache_num_layers(cache)):
                 k, v = _cache_kv(cache, li)
-                _cache_set_kv(cache, li, k.detach().cpu(), v.detach().cpu())
+                _cache_set_kv(cache, li, _probe.transfer(k.detach(), "cpu"), _probe.transfer(v.detach(), "cpu"))
 
             logger.info(f"Saving cache to: {cache_filename}")
 
             os.makedirs(os.path.dirname(cache_filename), exist_ok=True)
-            torch.save(cache, cache_filename)
+            _probe.save_cache(cache, cache_filename)
 
             if not os.path.exists(cache_filename):
                 logger.error(f"Cache file was not actually created: {cache_filename}")
@@ -2613,13 +2618,13 @@ class KvTextQaModelWrapper(KVCachingBackendBase):
         if load_plans[0]["relative"] is not None:
             # Reconstructed context length = kept-token count = the index file's last dim
             # (the tiny idx file avoids deserializing a whole baseline cache here).
-            _idx = torch.load(
+            _idx = _probe.load_cache(
                 load_plans[0]["relative"][1], map_location="cpu", weights_only=True
             )
             sample_ctx_tokens = _idx.shape[2]
             del _idx
         else:
-            _sc = torch.load(
+            _sc = _probe.load_cache(
                 load_plans[0]["physical"], map_location="cpu", weights_only=False
             )
             if isinstance(_sc, dict):
@@ -2693,315 +2698,316 @@ class KvTextQaModelWrapper(KVCachingBackendBase):
         _pin_h0, _pin_m0, _ = PINNED_KV_STORE.stats()
 
         for batch_start in tqdm(range(0, N, batch_size), desc="TextQA join: batches"):
-            batch_plans = load_plans[batch_start : batch_start + batch_size]
-            B = len(batch_plans)
+            with _probe.batch("kv", batch_start):
+                batch_plans = load_plans[batch_start : batch_start + batch_size]
+                B = len(batch_plans)
 
-            caches = []
-            context_lens = []
+                caches = []
+                context_lens = []
 
-            def _load_join_to_cpu(plan):
-                """CPU half of one cache load (loader thread). Physical: deserialize + scatter
-                each layer directly to its own device — the same topology as the main serving
-                path and the image server (no whole-cache GPU-0 staging spike). Relative
-                (Path A): gather kept rows from the baseline into pinned buffers; the GPU
-                rerotate runs on the main thread, mirroring _run_kv_cache_text."""
-                _t0 = time.perf_counter()
-                if plan["relative"] is not None:
-                    baseline_path, idx_path = plan["relative"]
-                    try:
-                        k_cpu, v_cpu, ridx = gather_payload_cpu(baseline_path, idx_path)
-                        return (
-                            {
-                                "needs_rerotate": True,
-                                "k": k_cpu,
-                                "v": v_cpu,
-                                "idx": ridx,
-                            },
-                            time.perf_counter() - _t0,
-                            0.0,
-                        )
-                    except RelativeReconstructError as e:
-                        logger.warning(
-                            f"[join] Path A failed for {plan['hash'][:12]}…, falling back to physical: {e}"
-                        )
-                fname = plan["physical"]
-                if keep_in_memory:
-                    # Pinned at prepare(); never re-read from disk (see _run_kv_cache_text).
-                    cache_data = PINNED_KV_STORE.get(fname)
-                    if cache_data is None:
-                        raise PinnedKVUnavailable(
-                            f"keep_in_memory cache not pinned: {fname}. prepare() must run "
-                            f"for column {column_name!r} on {self.model_name} before it "
-                            "serves a join."
-                        )
-                else:
-                    assert fname is not None and os.path.exists(
-                        fname
-                    ), f"Cache file missing: {fname}"
-                    cache_data = torch.load(
-                        fname, map_location="cpu", weights_only=False
-                    )
-                _t1 = time.perf_counter()
-                if isinstance(cache_data, dict):
-                    kc = cache_data["key_cache"]
-                    vc = cache_data["value_cache"]
-                elif hasattr(cache_data, "layers"):
-                    kc = [l.keys for l in cache_data.layers]
-                    vc = [l.values for l in cache_data.layers]
-                else:
-                    kc = cache_data.key_cache
-                    vc = cache_data.value_cache
-                kc = [k.to(layer_devices[j]) for j, k in enumerate(kc)]
-                vc = [v.to(layer_devices[j]) for j, v in enumerate(vc)]
-                _t2 = time.perf_counter()
-                return (
-                    {"needs_rerotate": False, "kc": kc, "vc": vc},
-                    _t1 - _t0,
-                    _t2 - _t1,
-                )
-
-            _wall_t0 = time.perf_counter()
-            with ThreadPoolExecutor(max_workers=min(B, 4)) as pool:
-                _results = list(pool.map(_load_join_to_cpu, batch_plans))
-
-            for payload, _disk_t, _route_t in _results:
-                total_disk_load_time += _disk_t
-                total_route_time += _route_t
-                if payload["needs_rerotate"]:
-                    # Path A GPU half: sliced H2D + per-device rerotate — each layer lands
-                    # directly on its own GPU, shape-identical to a physical cache.
-                    _rt0 = time.perf_counter()
-                    c = rerotate_payload_sharded(
-                        payload["k"],
-                        payload["v"],
-                        payload["idx"],
-                        rotary_emb,
-                        layer_devices,
-                    )
-                    total_route_time += time.perf_counter() - _rt0
-                    n_layers = _cache_num_layers(c)
-                    kc = [_cache_kv(c, li)[0] for li in range(n_layers)]
-                    vc = [_cache_kv(c, li)[1] for li in range(n_layers)]
-                else:
-                    kc, vc = payload["kc"], payload["vc"]
-                caches.append((kc, vc))
-                context_lens.append(kc[0].shape[2])
-            torch.cuda.synchronize()
-            total_wall_time += time.perf_counter() - _wall_t0
-
-            max_ctx = max(context_lens)
-            batched_gpu_keys = []
-            batched_gpu_values = []
-            for layer_idx, layer_kv_pairs in enumerate(
-                zip(*[zip(kc, vc) for kc, vc in caches])
-            ):
-                keys_padded, values_padded = [], []
-                for k, v in layer_kv_pairs:
-                    pad_len = max_ctx - k.shape[2]
-                    k = (
-                        torch.nn.functional.pad(k, (0, 0, pad_len, 0)).contiguous()
-                        if pad_len > 0
-                        else k
-                    )
-                    v = (
-                        torch.nn.functional.pad(v, (0, 0, pad_len, 0)).contiguous()
-                        if pad_len > 0
-                        else v
-                    )
-                    keys_padded.append(k)
-                    values_padded.append(v)
-                batched_gpu_keys.append(torch.cat(keys_padded, dim=0))
-                batched_gpu_values.append(torch.cat(values_padded, dim=0))
-
-            batch_qs = questions_per_text[batch_start : batch_start + batch_size]
-            batch_max_j = max(len(qs) for qs in batch_qs)
-            question_iter = (
-                enumerate(canonical_questions)
-                if questions_are_uniform
-                else ((j, None) for j in range(batch_max_j))
-            )
-
-            for j, _uniform_question in question_iter:
-                if questions_are_uniform:
-                    full_question = context_prefix + " " + _uniform_question
-                    valid_bs = list(range(B))
-                    batch_input_ids, batch_attn_mask = [], []
-                    for ctx_len in context_lens:
-                        pad_len = max_ctx - ctx_len
-                        if self.tokenizer.chat_template is None:
-                            question_suffix = "\n"
-                        else:
-                            sep = "\n" + "#" * ctx_len if ctx_len > 0 else "\n#"
-                            tmpl = self.tokenizer.apply_chat_template(
-                                [
-                                    {
-                                        "role": "user",
-                                        "content": "Example of context" + sep,
-                                    }
-                                ],
-                                add_generation_prompt=True,
-                                tokenize=False,
-                            )
-                            _, question_suffix = tmpl.split(sep)
-                        complete_q = full_question + question_suffix + answer_prefix
-                        q_ids = self.tokenizer.encode(
-                            complete_q, return_tensors="pt", add_special_tokens=False
-                        ).to(first_device)
-                        ctx_ids = torch.full(
-                            (1, ctx_len),
-                            self.tokenizer.pad_token_id + 1,
-                            device=self.device,
-                        )
-                        pad_ids = torch.full(
-                            (1, pad_len),
-                            self.tokenizer.pad_token_id,
-                            device=self.device,
-                        )
-                        input_ids_i = torch.cat([pad_ids, ctx_ids, q_ids], dim=1)
-                        mask_i = torch.cat(
-                            [
-                                torch.zeros_like(pad_ids),
-                                torch.ones_like(ctx_ids),
-                                torch.ones_like(q_ids),
-                            ],
-                            dim=1,
-                        )
-                        batch_input_ids.append(input_ids_i)
-                        batch_attn_mask.append(mask_i)
-                else:
-                    valid_bs = [b for b in range(B) if j < len(batch_qs[b])]
-                    per_item_questions = [batch_qs[b][j] for b in valid_bs]
-                    per_item_q_ids = []
-                    for b, question in zip(valid_bs, per_item_questions):
-                        ctx_len = context_lens[b]
-                        full_q = context_prefix + " " + question
-                        if self.tokenizer.chat_template is None:
-                            question_suffix = "\n"
-                        else:
-                            sep = "\n" + "#" * ctx_len if ctx_len > 0 else "\n#"
-                            tmpl = self.tokenizer.apply_chat_template(
-                                [
-                                    {
-                                        "role": "user",
-                                        "content": "Example of context" + sep,
-                                    }
-                                ],
-                                add_generation_prompt=True,
-                                tokenize=False,
-                            )
-                            _, question_suffix = tmpl.split(sep)
-                        q_ids = self.tokenizer.encode(
-                            full_q + question_suffix + answer_prefix,
-                            return_tensors="pt",
-                            add_special_tokens=False,
-                        ).to(first_device)
-                        per_item_q_ids.append(q_ids)
-                    max_q_len = max(q.shape[1] for q in per_item_q_ids)
-                    batch_input_ids, batch_attn_mask = [], []
-                    for vi, b in enumerate(valid_bs):
-                        ctx_len = context_lens[b]
-                        ctx_pad = max_ctx - ctx_len
-                        q_ids = per_item_q_ids[vi]
-                        q_pad = max_q_len - q_ids.shape[1]
-                        ctx_ids = torch.full(
-                            (1, ctx_len),
-                            self.tokenizer.pad_token_id + 1,
-                            device=self.device,
-                        )
-                        pad_ids = torch.full(
-                            (1, ctx_pad),
-                            self.tokenizer.pad_token_id,
-                            device=self.device,
-                        )
-                        q_pad_ids = torch.full(
-                            (1, q_pad), self.tokenizer.pad_token_id, device=self.device
-                        )
-                        input_ids_i = torch.cat(
-                            [pad_ids, ctx_ids, q_pad_ids, q_ids], dim=1
-                        )
-                        mask_i = torch.cat(
-                            [
-                                torch.zeros_like(pad_ids),
-                                torch.ones_like(ctx_ids),
-                                torch.zeros_like(q_pad_ids),
-                                torch.ones_like(q_ids),
-                            ],
-                            dim=1,
-                        )
-                        batch_input_ids.append(input_ids_i)
-                        batch_attn_mask.append(mask_i)
-
-                batched_inputs = torch.cat(batch_input_ids, dim=0)
-                batched_attn = torch.cat(batch_attn_mask, dim=0)
-
-                cache = DynamicCache()
-                if questions_are_uniform:
-                    for layer_idx, (k, v) in enumerate(
-                        zip(batched_gpu_keys, batched_gpu_values)
-                    ):
-                        cache.update(k.clone(), v.clone(), layer_idx)
-                else:
-                    for layer_idx, (k, v) in enumerate(
-                        zip(batched_gpu_keys, batched_gpu_values)
-                    ):
-                        cache.update(
-                            k[valid_bs].clone(), v[valid_bs].clone(), layer_idx
-                        )
-
-                for _i in range(torch.cuda.device_count()):
-                    torch.cuda.reset_peak_memory_stats(_i)
-                try:
-                    with torch.no_grad():
-                        generated = self.pipe.model.generate(
-                            input_ids=batched_inputs,
-                            attention_mask=batched_attn,
-                            past_key_values=cache,
-                            pad_token_id=self.tokenizer.eos_token_id,
-                            do_sample=False,
-                            max_new_tokens=max_new_tokens,
-                            output_scores=True,
-                            return_dict_in_generate=True,
-                        )
-                except Exception as e:
-                    logger.debug(
-                        f"[join] EXCEPTION during generate() at batch of "
-                        f"{len(valid_bs)} item(s): {e}"
-                    )
-                    for _i in range(torch.cuda.device_count()):
+                def _load_join_to_cpu(plan):
+                    """CPU half of one cache load (loader thread). Physical: deserialize + scatter
+                    each layer directly to its own device — the same topology as the main serving
+                    path and the image server (no whole-cache GPU-0 staging spike). Relative
+                    (Path A): gather kept rows from the baseline into pinned buffers; the GPU
+                    rerotate runs on the main thread, mirroring _run_kv_cache_text."""
+                    _t0 = time.perf_counter()
+                    if plan["relative"] is not None:
+                        baseline_path, idx_path = plan["relative"]
                         try:
-                            _free, _total = torch.cuda.mem_get_info(_i)
-                            _peak = torch.cuda.max_memory_allocated(_i) / 1e9
-                            logger.debug(
-                                f"  GPU {_i}: peak_allocated={_peak:.2f} GB "
-                                f"free_at_failure={_free/1e9:.2f} GB / {_total/1e9:.2f} GB total"
+                            k_cpu, v_cpu, ridx = gather_payload_cpu(baseline_path, idx_path)
+                            return (
+                                {
+                                    "needs_rerotate": True,
+                                    "k": k_cpu,
+                                    "v": v_cpu,
+                                    "idx": ridx,
+                                },
+                                time.perf_counter() - _t0,
+                                0.0,
                             )
-                        except Exception as e2:
-                            logger.debug(f"  GPU {_i}: could not read memory stats: {e2}")
-                    raise
-
-                logger.debug(f"[join] batch of {len(valid_bs)} item(s) succeeded")
-                for _i in range(torch.cuda.device_count()):
-                    _free, _total = torch.cuda.mem_get_info(_i)
-                    _peak = torch.cuda.max_memory_allocated(_i) / 1e9
-                    _peaks[_i] = max(_peaks.get(_i, 0.0), _peak)
-                    logger.debug(
-                        f"  GPU {_i}: peak_allocated={_peak:.2f} GB "
-                        f"free_after={_free/1e9:.2f} GB / {_total/1e9:.2f} GB total"
+                        except RelativeReconstructError as e:
+                            logger.warning(
+                                f"[join] Path A failed for {plan['hash'][:12]}…, falling back to physical: {e}"
+                            )
+                    fname = plan["physical"]
+                    if keep_in_memory:
+                        # Pinned at prepare(); never re-read from disk (see _run_kv_cache_text).
+                        cache_data = PINNED_KV_STORE.get(fname)
+                        if cache_data is None:
+                            raise PinnedKVUnavailable(
+                                f"keep_in_memory cache not pinned: {fname}. prepare() must run "
+                                f"for column {column_name!r} on {self.model_name} before it "
+                                "serves a join."
+                            )
+                    else:
+                        assert fname is not None and os.path.exists(
+                            fname
+                        ), f"Cache file missing: {fname}"
+                        cache_data = _probe.load_cache(
+                            fname, map_location="cpu", weights_only=False
+                        )
+                    _t1 = time.perf_counter()
+                    if isinstance(cache_data, dict):
+                        kc = cache_data["key_cache"]
+                        vc = cache_data["value_cache"]
+                    elif hasattr(cache_data, "layers"):
+                        kc = [l.keys for l in cache_data.layers]
+                        vc = [l.values for l in cache_data.layers]
+                    else:
+                        kc = cache_data.key_cache
+                        vc = cache_data.value_cache
+                    kc = [_probe.transfer(k, layer_devices[j]) for j, k in enumerate(kc)]
+                    vc = [_probe.transfer(v, layer_devices[j]) for j, v in enumerate(vc)]
+                    _t2 = time.perf_counter()
+                    return (
+                        {"needs_rerotate": False, "kc": kc, "vc": vc},
+                        _t1 - _t0,
+                        _t2 - _t1,
                     )
-                logits = generated.scores[0]
-                log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
-                log_odds_batch = (log_probs[:, id1] - log_probs[:, id0]).cpu()
-                decoded_batch = self.tokenizer.batch_decode(
-                    generated.sequences[:, batched_inputs.shape[1] :],
-                    skip_special_tokens=True,
+
+                _wall_t0 = time.perf_counter()
+                with ThreadPoolExecutor(max_workers=min(B, 4)) as pool:
+                    _results = list(pool.map(_load_join_to_cpu, batch_plans))
+
+                for payload, _disk_t, _route_t in _results:
+                    total_disk_load_time += _disk_t
+                    total_route_time += _route_t
+                    if payload["needs_rerotate"]:
+                        # Path A GPU half: sliced H2D + per-device rerotate — each layer lands
+                        # directly on its own GPU, shape-identical to a physical cache.
+                        _rt0 = time.perf_counter()
+                        c = rerotate_payload_sharded(
+                            payload["k"],
+                            payload["v"],
+                            payload["idx"],
+                            rotary_emb,
+                            layer_devices,
+                        )
+                        total_route_time += time.perf_counter() - _rt0
+                        n_layers = _cache_num_layers(c)
+                        kc = [_cache_kv(c, li)[0] for li in range(n_layers)]
+                        vc = [_cache_kv(c, li)[1] for li in range(n_layers)]
+                    else:
+                        kc, vc = payload["kc"], payload["vc"]
+                    caches.append((kc, vc))
+                    context_lens.append(kc[0].shape[2])
+                _probe.synchronize()
+                total_wall_time += time.perf_counter() - _wall_t0
+
+                max_ctx = max(context_lens)
+                batched_gpu_keys = []
+                batched_gpu_values = []
+                for layer_idx, layer_kv_pairs in enumerate(
+                    zip(*[zip(kc, vc) for kc, vc in caches])
+                ):
+                    keys_padded, values_padded = [], []
+                    for k, v in layer_kv_pairs:
+                        pad_len = max_ctx - k.shape[2]
+                        k = (
+                            torch.nn.functional.pad(k, (0, 0, pad_len, 0)).contiguous()
+                            if pad_len > 0
+                            else k
+                        )
+                        v = (
+                            torch.nn.functional.pad(v, (0, 0, pad_len, 0)).contiguous()
+                            if pad_len > 0
+                            else v
+                        )
+                        keys_padded.append(k)
+                        values_padded.append(v)
+                    batched_gpu_keys.append(torch.cat(keys_padded, dim=0))
+                    batched_gpu_values.append(torch.cat(values_padded, dim=0))
+
+                batch_qs = questions_per_text[batch_start : batch_start + batch_size]
+                batch_max_j = max(len(qs) for qs in batch_qs)
+                question_iter = (
+                    enumerate(canonical_questions)
+                    if questions_are_uniform
+                    else ((j, None) for j in range(batch_max_j))
                 )
-                for vi, b in enumerate(valid_bs):
-                    answers_per_text[batch_start + b][j] = decoded_batch[vi]
-                    log_odds_per_text[batch_start + b][j] = log_odds_batch[vi].item()
 
-                del cache, batched_inputs, batched_attn, generated, logits, log_probs
+                for j, _uniform_question in question_iter:
+                    if questions_are_uniform:
+                        full_question = context_prefix + " " + _uniform_question
+                        valid_bs = list(range(B))
+                        batch_input_ids, batch_attn_mask = [], []
+                        for ctx_len in context_lens:
+                            pad_len = max_ctx - ctx_len
+                            if self.tokenizer.chat_template is None:
+                                question_suffix = "\n"
+                            else:
+                                sep = "\n" + "#" * ctx_len if ctx_len > 0 else "\n#"
+                                tmpl = self.tokenizer.apply_chat_template(
+                                    [
+                                        {
+                                            "role": "user",
+                                            "content": "Example of context" + sep,
+                                        }
+                                    ],
+                                    add_generation_prompt=True,
+                                    tokenize=False,
+                                )
+                                _, question_suffix = tmpl.split(sep)
+                            complete_q = full_question + question_suffix + answer_prefix
+                            q_ids = _probe.transfer(self.tokenizer.encode(
+                                complete_q, return_tensors="pt", add_special_tokens=False
+                            ), first_device)
+                            ctx_ids = torch.full(
+                                (1, ctx_len),
+                                self.tokenizer.pad_token_id + 1,
+                                device=self.device,
+                            )
+                            pad_ids = torch.full(
+                                (1, pad_len),
+                                self.tokenizer.pad_token_id,
+                                device=self.device,
+                            )
+                            input_ids_i = torch.cat([pad_ids, ctx_ids, q_ids], dim=1)
+                            mask_i = torch.cat(
+                                [
+                                    torch.zeros_like(pad_ids),
+                                    torch.ones_like(ctx_ids),
+                                    torch.ones_like(q_ids),
+                                ],
+                                dim=1,
+                            )
+                            batch_input_ids.append(input_ids_i)
+                            batch_attn_mask.append(mask_i)
+                    else:
+                        valid_bs = [b for b in range(B) if j < len(batch_qs[b])]
+                        per_item_questions = [batch_qs[b][j] for b in valid_bs]
+                        per_item_q_ids = []
+                        for b, question in zip(valid_bs, per_item_questions):
+                            ctx_len = context_lens[b]
+                            full_q = context_prefix + " " + question
+                            if self.tokenizer.chat_template is None:
+                                question_suffix = "\n"
+                            else:
+                                sep = "\n" + "#" * ctx_len if ctx_len > 0 else "\n#"
+                                tmpl = self.tokenizer.apply_chat_template(
+                                    [
+                                        {
+                                            "role": "user",
+                                            "content": "Example of context" + sep,
+                                        }
+                                    ],
+                                    add_generation_prompt=True,
+                                    tokenize=False,
+                                )
+                                _, question_suffix = tmpl.split(sep)
+                            q_ids = _probe.transfer(self.tokenizer.encode(
+                                full_q + question_suffix + answer_prefix,
+                                return_tensors="pt",
+                                add_special_tokens=False,
+                            ), first_device)
+                            per_item_q_ids.append(q_ids)
+                        max_q_len = max(q.shape[1] for q in per_item_q_ids)
+                        batch_input_ids, batch_attn_mask = [], []
+                        for vi, b in enumerate(valid_bs):
+                            ctx_len = context_lens[b]
+                            ctx_pad = max_ctx - ctx_len
+                            q_ids = per_item_q_ids[vi]
+                            q_pad = max_q_len - q_ids.shape[1]
+                            ctx_ids = torch.full(
+                                (1, ctx_len),
+                                self.tokenizer.pad_token_id + 1,
+                                device=self.device,
+                            )
+                            pad_ids = torch.full(
+                                (1, ctx_pad),
+                                self.tokenizer.pad_token_id,
+                                device=self.device,
+                            )
+                            q_pad_ids = torch.full(
+                                (1, q_pad), self.tokenizer.pad_token_id, device=self.device
+                            )
+                            input_ids_i = torch.cat(
+                                [pad_ids, ctx_ids, q_pad_ids, q_ids], dim=1
+                            )
+                            mask_i = torch.cat(
+                                [
+                                    torch.zeros_like(pad_ids),
+                                    torch.ones_like(ctx_ids),
+                                    torch.zeros_like(q_pad_ids),
+                                    torch.ones_like(q_ids),
+                                ],
+                                dim=1,
+                            )
+                            batch_input_ids.append(input_ids_i)
+                            batch_attn_mask.append(mask_i)
 
-            del batched_gpu_keys, batched_gpu_values
+                    batched_inputs = torch.cat(batch_input_ids, dim=0)
+                    batched_attn = torch.cat(batch_attn_mask, dim=0)
+
+                    cache = DynamicCache()
+                    if questions_are_uniform:
+                        for layer_idx, (k, v) in enumerate(
+                            zip(batched_gpu_keys, batched_gpu_values)
+                        ):
+                            cache.update(k.clone(), v.clone(), layer_idx)
+                    else:
+                        for layer_idx, (k, v) in enumerate(
+                            zip(batched_gpu_keys, batched_gpu_values)
+                        ):
+                            cache.update(
+                                k[valid_bs].clone(), v[valid_bs].clone(), layer_idx
+                            )
+
+                    for _i in range(torch.cuda.device_count()):
+                        _probe.reset_peaks(_i)
+                    try:
+                        with torch.no_grad():
+                            generated = _probe.generate(self.pipe.model,
+                                input_ids=batched_inputs,
+                                attention_mask=batched_attn,
+                                past_key_values=cache,
+                                pad_token_id=self.tokenizer.eos_token_id,
+                                do_sample=False,
+                                max_new_tokens=max_new_tokens,
+                                output_scores=True,
+                                return_dict_in_generate=True,
+                            )
+                    except Exception as e:
+                        logger.debug(
+                            f"[join] EXCEPTION during generate() at batch of "
+                            f"{len(valid_bs)} item(s): {e}"
+                        )
+                        for _i in range(torch.cuda.device_count()):
+                            try:
+                                _free, _total = torch.cuda.mem_get_info(_i)
+                                _peak = torch.cuda.max_memory_allocated(_i) / 1e9
+                                logger.debug(
+                                    f"  GPU {_i}: peak_allocated={_peak:.2f} GB "
+                                    f"free_at_failure={_free/1e9:.2f} GB / {_total/1e9:.2f} GB total"
+                                )
+                            except Exception as e2:
+                                logger.debug(f"  GPU {_i}: could not read memory stats: {e2}")
+                        raise
+
+                    logger.debug(f"[join] batch of {len(valid_bs)} item(s) succeeded")
+                    for _i in range(torch.cuda.device_count()):
+                        _free, _total = torch.cuda.mem_get_info(_i)
+                        _peak = torch.cuda.max_memory_allocated(_i) / 1e9
+                        _peaks[_i] = max(_peaks.get(_i, 0.0), _peak)
+                        logger.debug(
+                            f"  GPU {_i}: peak_allocated={_peak:.2f} GB "
+                            f"free_after={_free/1e9:.2f} GB / {_total/1e9:.2f} GB total"
+                        )
+                    logits = generated.scores[0]
+                    log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
+                    log_odds_batch = _probe.transfer(log_probs[:, id1] - log_probs[:, id0], "cpu")
+                    decoded_batch = self.tokenizer.batch_decode(
+                        generated.sequences[:, batched_inputs.shape[1] :],
+                        skip_special_tokens=True,
+                    )
+                    for vi, b in enumerate(valid_bs):
+                        answers_per_text[batch_start + b][j] = decoded_batch[vi]
+                        log_odds_per_text[batch_start + b][j] = log_odds_batch[vi].item()
+
+                    del cache, batched_inputs, batched_attn, generated, logits, log_probs
+
+                del batched_gpu_keys, batched_gpu_values
 
         # Once per request, not per batch (see _run_vanilla_inference for the rationale).
         torch.cuda.empty_cache()
@@ -3099,33 +3105,34 @@ class KvTextQaModelWrapper(KVCachingBackendBase):
             range(0, len(full_prompts), batch_size),
             desc=f"Direct QA batches (bs={batch_size})",
         ):
-            batch_prompts = full_prompts[batch_start : batch_start + batch_size]
-            inputs = self.tokenizer(
-                batch_prompts,
-                return_tensors="pt",
-                padding=True,
-                add_special_tokens=False,
-            )
-            input_len = inputs["input_ids"].shape[1]
-            inputs = {k: v.to(first_device) for k, v in inputs.items()}
-            with torch.no_grad():
-                generated = self.pipe.model.generate(
-                    **inputs,
-                    max_new_tokens=max_new_tokens,
-                    do_sample=False,
-                    pad_token_id=self.tokenizer.eos_token_id,
-                    output_scores=True,
-                    return_dict_in_generate=True,
+            with _probe.batch("direct", batch_start):
+                batch_prompts = full_prompts[batch_start : batch_start + batch_size]
+                inputs = self.tokenizer(
+                    batch_prompts,
+                    return_tensors="pt",
+                    padding=True,
+                    add_special_tokens=False,
                 )
-            logits = generated.scores[0]
-            log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
-            log_odds_list.extend((log_probs[:, id1] - log_probs[:, id0]).cpu().tolist())
-            answers.extend(
-                self.tokenizer.batch_decode(
-                    generated.sequences[:, input_len:], skip_special_tokens=True
+                input_len = inputs["input_ids"].shape[1]
+                inputs = {k: _probe.transfer(v, first_device) for k, v in inputs.items()}
+                with torch.no_grad():
+                    generated = _probe.generate(self.pipe.model,
+                        **inputs,
+                        max_new_tokens=max_new_tokens,
+                        do_sample=False,
+                        pad_token_id=self.tokenizer.eos_token_id,
+                        output_scores=True,
+                        return_dict_in_generate=True,
+                    )
+                logits = generated.scores[0]
+                log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
+                log_odds_list.extend(_probe.transfer(log_probs[:, id1] - log_probs[:, id0], "cpu").tolist())
+                answers.extend(
+                    self.tokenizer.batch_decode(
+                        generated.sequences[:, input_len:], skip_special_tokens=True
+                    )
                 )
-            )
-            del inputs, generated
+                del inputs, generated
 
         # Once per request, not per batch (see _run_vanilla_inference for the rationale).
         torch.cuda.empty_cache()
