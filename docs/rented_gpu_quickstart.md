@@ -1,5 +1,7 @@
 # 從 GitHub 到租借 GPU：100 篇與 profiling
 
+**2026-10-21 已發佈新版一般映像。租到 Vast VM 後，優先使用 [主機操作指令手冊](vast_vm_runbook.md)**，直接 pull 固定 digest；不需要在付 GPU 租金時重新建置。下方保留從原始碼建置的流程，供需要更新程式時使用。
+
 本指南適用這次新增的詳細 profiling 原始碼。CPU 測試已完成；48GB GPU、雙模型、真實查詢、CUDA trace、Nsight collector 與 overhead 仍待現場驗收，不保證第一次執行即成功。
 
 ## 1. 租借前準備

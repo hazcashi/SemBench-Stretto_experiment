@@ -4,7 +4,9 @@
 
 這是重設模型與環境後的最小復現，尚未代表論文完整結果。查詢規劃、metadata 與部分程式生成仍會使用 OpenAI API。
 
-舊 baseline 的公開 GHCR 映像保留於 [固定 digest](docker/image.txt)，可作為已建好 torch/FlashAttention/kvpress 的依賴基底。**最新的詳細 profiling 在原始碼中，須先建置新版程式映像；舊 digest 不含新功能。** 新版根目錄 CPU 測試於本機 Python3.12 為32 passed、5 skipped；Docker建置、HF/API、48GB GPU雙模型、query/benchmark與Nsight仍需驗收。
+**租到 Vast VM 後，請優先依照 [主機操作指令手冊](docs/vast_vm_runbook.md)**：直接拉取已發佈新版 image，依序做環境驗收、100 篇實驗、profiling 與結果備份。另附尚待 GPU 驗收的完整 728 篇執行方式。
+
+新版一般映像已發佈至 GHCR，固定 digest 與直接 pull 指令見上方主機操作手冊；Docker 內 CPU 測試為36 passed、1 skipped，CUDA 測試尚未執行。HF/API、48GB GPU雙模型、query/benchmark與Nsight仍需驗收。舊 baseline 保留於 [依賴基底 digest](docker/image.txt)，該舊映像不含新版詳細 profiling。
 
 先完成 [租借前準備與 API 存取驗收](docs/pre_rental_checklist.md)，確認模型授權、API 額度與新版映像。從GitHub到租借主機的完整操作見 [租借GPU逐步指南](docs/rented_gpu_quickstart.md)；量測定義見 [profiling](docs/profiling.md)。另有 [部署指南](docs/deployment.md)、[驗證紀錄](docs/experiment_log.md)、[架構審查](docs/reproduction_plan.md)。舊版映像與CI證據見 [release.json](docker/release.json)。
 
