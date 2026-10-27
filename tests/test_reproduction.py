@@ -167,6 +167,8 @@ def test_failed_run_preserves_manifest(tmp_path, monkeypatch):
         runner.run(profile, ROOT / "configs/single_gpu.json", run_dir)
     report = json.loads((run_dir / "manifest.json").read_text())
     assert report["status"] == "failed"
+    assert report["nl_smoke_enabled"] is False
+    assert report["benchmark_plan_source"] == "upstream ROTOWIRE_QUERIES fixed logical plans"
     assert report["error_type"] == "RuntimeError"
     assert report["cache_bytes_after_run"] == 0
     assert "injected unavailable access" in (run_dir / "failure.txt").read_text()

@@ -8,6 +8,13 @@ __pycache__/
 .pytest_cache/
 data/
 results/
+/stretto-results/*
+!/stretto-results/README.md
+!/stretto-results/analysis/
+!/stretto-results/raw-results-20261022.zip
+!/stretto-results/archive-manifest.json
+!/stretto-results/remote-inventory.json
+!/stretto-results/download-verification.json
 logging/
 *.pt
 *.safetensors

@@ -473,6 +473,18 @@ class SqlQuery:
                 return collected_renamings[table.lower()]
             return table
 
+        # Predicates on joined virtual inputs retain per-column physical
+        # bindings. Rename those along with projections for later self-joins,
+        # without rewriting SQL literals or mutating a shared observation.
+        self._conditions = [deepcopy(condition) for condition in self._conditions]
+        for condition in self._conditions:
+            if getattr(condition, "column_bindings", None):
+                condition.column_bindings = {
+                    key: column.rename_table(rename_name(column.table_name))
+                    if column.table_name is not None else column
+                    for key, column in condition.column_bindings.items()
+                }
+
         new_join_conditions: Sequence["JoinConditionConjuction"] = []
         for conjunction in self._join_conditions:
             new_table_name = rename_name(conjunction.table.table_name)
@@ -1227,15 +1239,19 @@ class FilterConditionAvailableData:
         self,
         filter_expression: str,
         input_table: ConcreteTableIdentifier,
+        column_bindings: Optional[Dict[str, ConcreteColumnIdentifier]] = None,
     ):
         self.filter_expression = filter_expression
         self.input_table = input_table
+        self.column_bindings = dict(column_bindings or {})
         self.not_allow_discard_fraction = 0.0
 
     def cond_text(self, gold_mixing) -> str:
         result = self.filter_expression.replace(
             "<input_table>", self.input_table.table_name
         )
+        for placeholder, column in self.column_bindings.items():
+            result = result.replace(placeholder, column.no_alias)
         if gold_mixing:
             result = f"({result} OR __random__ < {self.not_allow_discard_fraction})"
         return result

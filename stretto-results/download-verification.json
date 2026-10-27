@@ -1,0 +1,132 @@
+{
+  "checked_utc": "2026-10-22T10:53:12.518458+00:00",
+  "local_root": "C:\\Users\\yungchang\\Downloads\\stretto-results\\results",
+  "remote_file_count": 249,
+  "local_file_count": 249,
+  "local_bytes": 378616879,
+  "missing": [],
+  "extra": [],
+  "mismatch": [],
+  "read_errors": [],
+  "active_remote_experiment_pids": [],
+  "transfer_verified": true,
+  "runs": [
+    {
+      "run_id": "20261022T093856Z-9f1aa934",
+      "reports": 100,
+      "status": "completed",
+      "backend_errors": [],
+      "failure_file_present": false,
+      "traces": [
+        {
+          "file": "large_kv.json",
+          "events": 38067,
+          "gpu_kernels": 3475,
+          "gpu_memcpy_events": 217
+        },
+        {
+          "file": "large_vanilla.json",
+          "events": 34404,
+          "gpu_kernels": 3147,
+          "gpu_memcpy_events": 88
+        },
+        {
+          "file": "small_kv.json",
+          "events": 33275,
+          "gpu_kernels": 2999,
+          "gpu_memcpy_events": 193
+        },
+        {
+          "file": "small_vanilla.json",
+          "events": 30509,
+          "gpu_kernels": 2767,
+          "gpu_memcpy_events": 77
+        }
+      ],
+      "jsonl_records": {
+        "events.jsonl": 61,
+        "large_requests.jsonl": 11,
+        "resources.jsonl": 414,
+        "small_requests.jsonl": 13,
+        "profiling/large_phases.jsonl": 32564,
+        "profiling/resources.jsonl": 414,
+        "profiling/small_phases.jsonl": 21287
+      },
+      "batch_rows": 3436,
+      "nonempty_batch_fields": {
+        "prefill_gpu_s": 3436,
+        "decode_gpu_s": 3436,
+        "h2d_bytes": 3436,
+        "d2h_bytes": 3436,
+        "peak_allocated_bytes": 3436,
+        "peak_reserved_bytes": 3436
+      },
+      "output_csv_rows": {
+        "benchmark_0.csv": 655,
+        "silver_0.csv": 655,
+        "metrics.csv": 1
+      },
+      "profile_limitations": []
+    },
+    {
+      "run_id": "20261022T094727Z-ab3bbe42",
+      "reports": 728,
+      "status": "completed",
+      "backend_errors": [],
+      "failure_file_present": false,
+      "traces": [
+        {
+          "file": "large_kv.json",
+          "events": 37676,
+          "gpu_kernels": 3411,
+          "gpu_memcpy_events": 217
+        },
+        {
+          "file": "large_vanilla.json",
+          "events": 34583,
+          "gpu_kernels": 3243,
+          "gpu_memcpy_events": 86
+        },
+        {
+          "file": "small_kv.json",
+          "events": 33274,
+          "gpu_kernels": 2999,
+          "gpu_memcpy_events": 193
+        },
+        {
+          "file": "small_vanilla.json",
+          "events": 30109,
+          "gpu_kernels": 2851,
+          "gpu_memcpy_events": 77
+        }
+      ],
+      "jsonl_records": {
+        "events.jsonl": 61,
+        "large_requests.jsonl": 11,
+        "resources.jsonl": 2037,
+        "small_requests.jsonl": 13,
+        "profiling/large_phases.jsonl": 178399,
+        "profiling/resources.jsonl": 2037,
+        "profiling/small_phases.jsonl": 96591
+      },
+      "batch_rows": 19612,
+      "nonempty_batch_fields": {
+        "prefill_gpu_s": 19612,
+        "decode_gpu_s": 19612,
+        "h2d_bytes": 19612,
+        "d2h_bytes": 19612,
+        "peak_allocated_bytes": 19612,
+        "peak_reserved_bytes": 19612
+      },
+      "output_csv_rows": {
+        "benchmark_0.csv": 4699,
+        "silver_0.csv": 4699,
+        "metrics.csv": 1
+      },
+      "profile_limitations": []
+    }
+  ],
+  "parse_errors": [],
+  "scope": "Downloaded results and PyTorch profiles; excludes regenerable model/KV caches and uncaptured Nsight UM faults",
+  "results_ready_for_offline_analysis": true
+}

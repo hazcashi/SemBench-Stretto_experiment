@@ -34,6 +34,8 @@ LABEL org.opencontainers.image.source="https://github.com/hazcashi/SemBench-Stre
 COPY stretto-main/stretto-main /opt/stretto/source
 COPY configs /opt/stretto/configs
 COPY tests /opt/stretto/tests
+COPY scripts/reproduce_in_container.py /opt/stretto/scripts/reproduce_in_container.py
+COPY scripts/run_experiment_suite.py /opt/stretto/scripts/run_experiment_suite.py
 COPY docs/source_provenance.json /opt/stretto/source_provenance.json
 COPY scripts/fetch_rotowire.py /opt/stretto/fetch_rotowire.py
 WORKDIR /opt/stretto/source

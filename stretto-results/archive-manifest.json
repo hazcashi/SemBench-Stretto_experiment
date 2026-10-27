@@ -1,0 +1,15 @@
+{
+  "archive": "raw-results-20261022.zip",
+  "archive_sha256": "355fc07fa6039c11b15aeeea2733ec72c5a1f26c19b6cd3501b36dd9b5788530",
+  "archive_bytes": 29341933,
+  "uncompressed_bytes": 378616879,
+  "files": 249,
+  "verification": "Every ZIP entry matched remote-inventory.json SHA256; CRC verified",
+  "extraction_root": "stretto-results",
+  "includes": "All /results files: successful and failed runs, profiles, traces, logs, configs and host-info",
+  "excludes": [
+    "Credentials",
+    "Model weights",
+    "Regenerable KV cache"
+  ]
+}

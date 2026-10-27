@@ -51,26 +51,32 @@ class TraditionalFilter(PhysicalOperator):
         assert len(inputs) == 1
 
         cond_expression = filter_cond.text
+        column_bindings = {}
         table = None
-        for col in filter_cond.column_mentions():
+        for col in filter_cond.column_mentions(inputs[0]):
             concrete_column = database_state.get_concrete_column_from_virtual(col)
             assert col.table_identifier == inputs[0]
             placeholder = "<input_table>"
             table = concrete_column.table_identifier
-            placeholder_col = concrete_column.rename_table(placeholder)
+            # A virtual input may join several physical tables, including the
+            # hidden table holding an LLM extract. Keep each column's origin.
+            column_bindings[f"{{{col}}}"] = concrete_column
+            column_bindings[f"{{{col.column_name}}}"] = concrete_column
+            virtual_column = f"{placeholder}.{col.column_name}"
 
             cond_expression = cond_expression.replace(
-                f"{{{col}}}", placeholder_col.no_alias
+                f"{{{col}}}", virtual_column
             )
             cond_expression = cond_expression.replace(
-                f"{{{col.column_name}}}", placeholder_col.no_alias
+                f"{{{col.column_name}}}", virtual_column
             )
 
         if table is None:
             raise Mistake("FilterCondition must mention input table at least once.")
         filter_condition = FilterConditionAvailableData(
-            filter_expression=cond_expression,
+            filter_expression=filter_cond.text,
             input_table=table,
+            column_bindings=column_bindings,
         )
         filter_condition_virtual = FilterConditionAvailableDataVirtual(
             filter_expression=cond_expression,

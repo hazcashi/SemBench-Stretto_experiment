@@ -153,7 +153,7 @@ class Sampler:
         self.thread.join(timeout=10)
 
 
-def run_queries(profile, subset_dir, run_dir):
+def run_queries(profile, subset_dir, run_dir, *, nl_smoke=False):
     set_stage("setup")
     import asyncio
     import torch
@@ -198,16 +198,21 @@ def run_queries(profile, subset_dir, run_dir):
     rows = []
     try:
         with executor:
-            # Actual natural-language planning, with the real guarantees forwarded.
-            query = Query("Return the reports where the home team won the game.")
-            set_stage("smoke")
-            started = time.perf_counter()
-            result, cost = asyncio.run(executor.execute_query(query, logger / "smoke", *guarantees))
-            frame = asyncio.run(executor.extract_data(result, logger / "smoke-output"))
-            frame.to_csv(run_dir / "smoke.csv", index=False)
-            rows.append({"stage": "smoke", "query": query.query, "wall_s": time.perf_counter()-started,
-                         "rows": len(frame), "cost": cost.to_json()})
-            executor.clean_up()
+            # This additional NL query is not part of upstream ROTOWIRE_QUERIES.
+            # Its generated plan can require levels the upstream GD optimizer does
+            # not support. Keep it explicitly opt-in; never catch its failure and
+            # report a successful smoke. Fixed benchmark plans still use the real
+            # configurator, optimizer, and local model backends below.
+            if nl_smoke:
+                query = Query("Return the reports where the home team won the game.")
+                set_stage("smoke")
+                started = time.perf_counter()
+                result, cost = asyncio.run(executor.execute_query(query, logger / "smoke", *guarantees))
+                frame = asyncio.run(executor.extract_data(result, logger / "smoke-output"))
+                frame.to_csv(run_dir / "smoke.csv", index=False)
+                rows.append({"stage": "smoke", "query": query.query, "wall_s": time.perf_counter()-started,
+                             "rows": len(frame), "cost": cost.to_json()})
+                executor.clean_up()
             # Preserve upstream fixed benchmark logical plans, including column labels.
             # Dataset rows are reindexed in this subset: do not use upstream human labels.
             started = time.perf_counter()
@@ -256,7 +261,7 @@ def run_queries(profile, subset_dir, run_dir):
             writer.writerows({k: row.get(k) for k in writer.fieldnames} for row in rows)
 
 
-def run(profile, profile_path, run_dir, tracing=False, trace_engine="torch"):
+def run(profile, profile_path, run_dir, tracing=False, trace_engine="torch", *, nl_smoke=False):
     import torch
     from huggingface_hub import __version__ as hf_version
     cache = Path(os.environ["REASONDB_CACHE_DIR"])
@@ -275,6 +280,8 @@ def run(profile, profile_path, run_dir, tracing=False, trace_engine="torch"):
                 "source_revision": os.environ.get("STRETTO_SOURCE_REVISION"),
                 "profile_enabled": tracing, "sampling_interval_s": 1,
                 "result_cache_enabled": False,
+                "nl_smoke_enabled": nl_smoke,
+                "benchmark_plan_source": "upstream ROTOWIRE_QUERIES fixed logical plans",
                 "inference_max_new_tokens": {"boolean": 4, "extract": 64},
                 "request_concurrency": 1,
                 "gpu_model_dtype": "bfloat16",
@@ -320,7 +327,7 @@ def run(profile, profile_path, run_dir, tracing=False, trace_engine="torch"):
                                5324, profile["readiness_timeout_s"])
                 for role in ("small", "large"):
                     write_json(run_dir / f"{role}_concurrent.json", smoke_model(profile[role], cache))
-                run_queries(profile, subset_dir, run_dir)
+                run_queries(profile, subset_dir, run_dir, nl_smoke=nl_smoke)
         backend_errors = []
         for path in run_dir.glob("*_requests.jsonl"):
             for line in path.read_text().splitlines():
@@ -361,7 +368,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=("doctor", "run", "profile", "profile-nsys", "inspect", "access"))
     parser.add_argument("--config", default="/opt/stretto/configs/single_gpu.json")
+    parser.add_argument("--nl-smoke", action="store_true",
+                        help="Opt into the extra NL smoke before the fixed benchmark; generated multi-level plans may be unsupported")
     args = parser.parse_args()
+    if args.nl_smoke and args.action not in ("run", "profile", "profile-nsys"):
+        parser.error("--nl-smoke requires run, profile, or profile-nsys")
     profile = load_profile(args.config)
     if args.action == "inspect":
         from reasondb.reproduction.profile import build_configurator
@@ -389,7 +400,7 @@ def main():
             raise
     else:
         run(profile, args.config, run_dir, tracing=args.action in ("profile", "profile-nsys"),
-            trace_engine="nsys" if args.action == "profile-nsys" else "torch")
+            trace_engine="nsys" if args.action == "profile-nsys" else "torch", nl_smoke=args.nl_smoke)
 
 
 if __name__ == "__main__":

@@ -4,3 +4,8 @@ Dockerfile text eol=lf
 *.py text eol=lf
 *.jpg binary
 *.png binary
+*.zip binary
+*.pdf binary
+# Generated vector paths contain intentional whitespace; review the PNG/PDF instead.
+stretto-results/analysis/*.svg -diff linguist-generated=true
+stretto-results/analysis/report.html -diff linguist-generated=true

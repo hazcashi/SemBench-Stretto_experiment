@@ -1,6 +1,14 @@
 # Profiling：推論、記憶體、搬送與缺頁
 
-新版程式提供三種模式。**目前 docker/image.txt 仍是舊發佈映像，沒有這次 instrumentation；必須先建置新版映像。** GPU 驗收仍需租借主機實測。
+新版程式提供三種模式。**目前租用的 Vast instance 已有 instrumentation 與現場修正，直接使用 [容器手冊](vast_container_runbook.md) 的命令，不需要重新建置。** `docker/image.txt` 仍指向更早的映像；下方建置流程提供給另外建立環境者，不能將現場修正視為已發佈進舊 image。完整 GPU benchmark／trace 驗收仍待實測。
+
+目前只跑固定 Stretto benchmark 並收集詳細 PyTorch profile（100 篇後接 728 篇）：
+
+```bash
+/opt/venv/bin/python /workspace/stretto-run/run_experiment_suite.py --profile-only
+```
+
+保留服務檢查與 8B silver reference，額外 NL smoke 預設關閉；不改原 optimizer。全程數值紀錄搭配每模型每路徑首批 trace，最多四份。此模式不包含 Nsight／CUDA UM faults，也沒有未開 profiling 的 baseline，因此 overhead 仍未量測。結果看 `/results/<run-id>/profiling/`；失敗不會自動進下一輪。
 
 ## 建置與執行
 

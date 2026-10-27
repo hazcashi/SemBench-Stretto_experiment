@@ -1,6 +1,12 @@
 # 租到 Vast VM 後：從 SSH 到實驗與結果備份
 
-更新日期：2026-10-21。這是一份分段執行的操作手冊，請按順序執行；出錯先停在該步。不要把整份文件當成單一腳本一次執行。
+> **目前選定預建 image 路線，請使用 [Vast 預建 image 與一鍵批次手冊](vast_container_runbook.md)。** 不再使用 CUDA 模板現場編譯；下方 VM／其他路線僅作參考。
+
+更新日期：2026-10-22。這是一份分段執行的操作手冊，請按順序執行；出錯先停在該步。不要把整份文件當成單一腳本一次執行。
+
+> 若現有 instance 是 NVIDIA CUDA／vastai/base-image，它尚不包含 Stretto。請先依上方預建 image 手冊核對部署；不要在一般 CUDA 容器內執行本頁的 Docker 指令。
+
+> **先確認租用的模板。若使用 `Stretto SSH` 自訂模板，映像為 `ghcr.io/hazcashi/sembench-stretto_experiment:436207bd211943709930577ec44895d8a1db0cd5`，請改讀 [Vast 一般容器操作手冊](vast_container_runbook.md)。** SSH／VS Code 設定可沿用本頁第 0.1、1 節；登入後跳到容器手冊，不執行下方 VM 專用的 Docker、clone、掛載或備份命令。
 
 ## 0. 適用環境與目前驗證狀態
 
@@ -13,13 +19,66 @@
 
 除標記為 **本機 PowerShell** 的區塊外，下方命令都在 **租借 VM 的 Bash** 執行。若重開 shell，需要重新設定文件中的 `STRETTO_IMAGE` 等 shell 變數；`.env` 與磁碟上的資料會保留。
 
-## 1. 從本機 SSH 登入
+## 0.1 借用 Windows 電腦：先建立專用 SSH key
+
+Vast 帳號存的是公鑰；連線電腦需要對應私鑰。原電腦無法使用時，可在借用電腦產生新的一組，再把新公鑰加入同一個 Vast 帳號，不必刪除舊公鑰。
+
+**本機 PowerShell**（VS Code 的本機終端也可以）。使用獨立檔名，保留借用電腦原有的金鑰：
+
+```powershell
+$strettoKeyPath = Join-Path $env:USERPROFILE '.ssh/id_ed25519_stretto_vast'
+New-Item -ItemType Directory -Force (Split-Path $strettoKeyPath) | Out-Null
+if ((Test-Path -LiteralPath $strettoKeyPath) -or (Test-Path -LiteralPath ($strettoKeyPath + '.pub'))) {
+  throw '專用 key 已存在，請先確認用途，不要覆寫。'
+}
+ssh-keygen -t ed25519 -C 'stretto-vast-borrowed-pc' -f $strettoKeyPath
+```
+
+提示 `Enter passphrase` 時，由你在終端輸入自行設定的保護密碼，再輸入一次。輸入時不顯示字元是正常現象；這是金鑰保護密碼，與 Vast 帳號密碼不同。
+
+- `id_ed25519_stretto_vast`：私鑰，留在這台電腦，不上傳 GitHub、Vast、GPU VM 或聊天。
+- `id_ed25519_stretto_vast.pub`：公鑰，下一步貼到 Vast。
+
+複製公鑰至剪貼簿：
+
+```powershell
+Get-Content "$env:USERPROFILE/.ssh/id_ed25519_stretto_vast.pub" | Set-Clipboard
+```
+
+開啟 [Vast Account](https://cloud.vast.ai/account/)，在 SSH Keys 區域新增公鑰，貼上整行 `ssh-ed25519 ... stretto-vast-borrowed-pc` 並儲存。保留原電腦的公鑰。
+
+**先加入公鑰，再建立 Ubuntu VM。** 新增帳號公鑰不會自動更新既有 instance；Vast 官方說明 VM 的平台換鑰流程需要重建 VM，因此租前完成。[SSH 官方說明](https://docs.vast.ai/guides/instances/connect/ssh)、[VM 官方說明](https://docs.vast.ai/guides/instances/virtual-machines)
+
+## 1. 從本機 SSH 登入與 VS Code Remote SSH
 
 **本機 PowerShell**，將 `PORT`、`USER`、`HOST` 換成 Vast 提供的 SSH 連線資訊：
 
 ```powershell
-ssh -p PORT USER@HOST
+ssh -i "$env:USERPROFILE/.ssh/id_ed25519_stretto_vast" -o IdentitiesOnly=yes -p PORT USER@HOST
 ```
+
+`USER`、`HOST`、`PORT` 都以該 VM 的 Vast SSH 連線資訊為準，不自行假設帳號或 port。若有 Direct SSH 可優先使用。首次連線確認主機資訊與可取得的 host fingerprint 後接受提示，再輸入剛才的 key passphrase。
+
+確認上述 PowerShell 連線成功，再設定 VS Code。若尚未安裝 Microsoft Remote - SSH，可在擴充套件搜尋 `ms-vscode-remote.remote-ssh` 安裝。
+
+在**本機 VS Code 視窗**按 `Ctrl+Shift+P` → `Remote-SSH: Open SSH Configuration File...` → 選使用者的 `C:\Users\<你的使用者>\.ssh\config`，在檔案末尾新增以下區塊，保留原有內容，並替換三個佔位值：
+
+```sshconfig
+Host stretto-vast
+    HostName HOST
+    User USER
+    Port PORT
+    IdentityFile ~/.ssh/id_ed25519_stretto_vast
+    IdentitiesOnly yes
+    ServerAliveInterval 30
+    ServerAliveCountMax 3
+```
+
+按 `Ctrl+Shift+P` → `Remote-SSH: Connect to Host...` → `stretto-vast`；平台選 Linux，依提示輸入 key passphrase，等待 VS Code Server 安裝。左下角應顯示 `SSH: stretto-vast`。往後本機也能用 `ssh stretto-vast` 連線。[VS Code 官方說明](https://code.visualstudio.com/docs/remote/ssh)
+
+連線後，VS Code 的終端就是遠端 Bash。**一般 Stretto SSH 容器現在跳到 [容器手冊](vast_container_runbook.md) 第 1 步。** 只有 VM 才繼續下面的環境檢查和第 2 步 clone。Remote SSH 不會自動同步本機專案或 `.env`；依所選路線的手冊另傳。
+
+歸還借用電腦前，結束實驗並確認不再需要這組 key，再從 Vast 移除這組專用公鑰，從本機 config 移除 `stretto-vast` 區塊，刪除這組專用私鑰與 `.pub`；保留原有金鑰。實驗憑證與備份另行妥善處理。
 
 登入後，在 **VM Bash** 檢查：
 
@@ -115,7 +174,7 @@ cp configs/single_gpu.json results/host-info/single_gpu.json
 
 ```powershell
 Set-Location C:\Users\yungchang\Desktop\lin_chen\SemBench-Stretto_experiment
-scp -P PORT .env USER@HOST:REMOTE_PROJECT/.env
+scp -i "$env:USERPROFILE/.ssh/id_ed25519_stretto_vast" -o IdentitiesOnly=yes -P PORT .env USER@HOST:REMOTE_PROJECT/.env
 ```
 
 ### 方式 B：在 VM 重新填寫
@@ -410,8 +469,8 @@ printf '下載這兩個檔案：\n%s\n%s.sha256\n' "$STRETTO_ARCHIVE" "$STRETTO_
 **本機 PowerShell**，用剛剛印出的完整路徑取代 `REMOTE_ARCHIVE`，檔名取代 `ARCHIVE_NAME`：
 
 ```powershell
-scp -P PORT USER@HOST:REMOTE_ARCHIVE .
-scp -P PORT USER@HOST:REMOTE_ARCHIVE.sha256 .
+scp -i "$env:USERPROFILE/.ssh/id_ed25519_stretto_vast" -o IdentitiesOnly=yes -P PORT USER@HOST:REMOTE_ARCHIVE .
+scp -i "$env:USERPROFILE/.ssh/id_ed25519_stretto_vast" -o IdentitiesOnly=yes -P PORT USER@HOST:REMOTE_ARCHIVE.sha256 .
 Get-FileHash -Algorithm SHA256 .\ARCHIVE_NAME.tar.gz
 Get-Content .\ARCHIVE_NAME.tar.gz.sha256
 tar -tzf .\ARCHIVE_NAME.tar.gz

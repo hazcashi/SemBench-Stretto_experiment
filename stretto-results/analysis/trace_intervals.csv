@@ -1,0 +1,9 @@
+﻿reports,file,role,route,phase,kernel_events,memcpy_events,envelope_s,kernel_union_s,copy_only_s,no_recorded_gpu_event_s,scope
+100,small_kv.json,small,kv,configuring,2999,193,0.23218486889648438,0.020840396728515623,0.00056869873046875,0.2107757734375,One representative batch; first-to-last recorded GPU event; not whole run
+100,small_vanilla.json,small,vanilla,profiling,2767,77,0.0987297509765625,0.04606490478515625,0.00023833642578125,0.052426509765625,One representative batch; first-to-last recorded GPU event; not whole run
+100,large_kv.json,large,kv,profiling,3475,217,0.26296952490234377,0.04228524389648437,0.00180238037109375,0.21888190063476562,One representative batch; first-to-last recorded GPU event; not whole run
+100,large_vanilla.json,large,vanilla,profiling,3147,88,0.15702389697265626,0.11288997265625,0.000229658935546875,0.04390426538085938,One representative batch; first-to-last recorded GPU event; not whole run
+728,small_kv.json,small,kv,configuring,2999,193,0.22185589599609376,0.02096204443359375,0.000723142578125,0.200170708984375,One representative batch; first-to-last recorded GPU event; not whole run
+728,small_vanilla.json,small,vanilla,profiling,2851,77,0.12442992895507812,0.0276844658203125,8.885986328125e-05,0.09665660327148437,One representative batch; first-to-last recorded GPU event; not whole run
+728,large_kv.json,large,kv,profiling,3411,217,0.22626667993164062,0.04191579345703125,0.000755335693359375,0.18359555078125,One representative batch; first-to-last recorded GPU event; not whole run
+728,large_vanilla.json,large,vanilla,profiling,3243,86,0.11195953588867187,0.05703272436523438,0.000153374755859375,0.05477343676757813,One representative batch; first-to-last recorded GPU event; not whole run
