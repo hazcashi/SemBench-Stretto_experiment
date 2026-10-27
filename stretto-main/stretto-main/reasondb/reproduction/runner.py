@@ -154,6 +154,11 @@ class Sampler:
 
 
 def run_queries(profile, subset_dir, run_dir, *, nl_smoke=False):
+    if profile.get("workload") == "rotowire_random":
+        if nl_smoke:
+            raise ValueError("Full Rotowire runs upstream generated plans, not the extra NL smoke")
+        from reasondb.reproduction.full_workload import run_full_workload
+        return run_full_workload(profile, subset_dir, run_dir)
     set_stage("setup")
     import asyncio
     import torch
@@ -281,7 +286,11 @@ def run(profile, profile_path, run_dir, tracing=False, trace_engine="torch", *, 
                 "profile_enabled": tracing, "sampling_interval_s": 1,
                 "result_cache_enabled": False,
                 "nl_smoke_enabled": nl_smoke,
-                "benchmark_plan_source": "upstream ROTOWIRE_QUERIES fixed logical plans",
+                "benchmark_plan_source": ("upstream RotowireRandom generator, 8B filter statistics"
+                                          if profile.get("workload") == "rotowire_random"
+                                          else "upstream ROTOWIRE_QUERIES fixed logical plans"),
+                "expected_queries": profile.get("expected_queries", 1),
+                "source_tree_sha256": os.environ.get("STRETTO_SOURCE_TREE_SHA256"),
                 "inference_max_new_tokens": {"boolean": 4, "extract": 64},
                 "request_concurrency": 1,
                 "gpu_model_dtype": "bfloat16",
@@ -302,7 +311,11 @@ def run(profile, profile_path, run_dir, tracing=False, trace_engine="torch", *, 
         (run_dir / "pip-freeze.txt").write_text(command_output([sys.executable, "-m", "pip", "freeze"]))
         download_models(profile)
         subset_dir = Path(os.environ["STRETTO_DATA_ROOT"]) / profile["cache_namespace"] / "subset"
-        manifest["subset"] = create_subset(REPO / "reasondb/evaluation/benchmarks/files", subset_dir, profile["reports_limit"])
+        if profile.get("workload") == "rotowire_random":
+            from reasondb.reproduction.subset import copy_full_dataset
+            manifest["subset"] = copy_full_dataset(REPO / "reasondb/evaluation/benchmarks/files", subset_dir)
+        else:
+            manifest["subset"] = create_subset(REPO / "reasondb/evaluation/benchmarks/files", subset_dir, profile["reports_limit"])
         trace_dir = profiling_dir / "traces" if tracing else None
         if trace_dir:
             trace_dir.mkdir()
@@ -328,6 +341,11 @@ def run(profile, profile_path, run_dir, tracing=False, trace_engine="torch", *, 
                 for role in ("small", "large"):
                     write_json(run_dir / f"{role}_concurrent.json", smoke_model(profile[role], cache))
                 run_queries(profile, subset_dir, run_dir, nl_smoke=nl_smoke)
+        if profile.get("workload") == "rotowire_random":
+            manifest["workload_summary"] = json.loads((run_dir / "workload_summary.json").read_text())
+            if (manifest["workload_summary"].get("status") != "completed"
+                    or manifest["workload_summary"].get("scored_queries") != 60):
+                raise RuntimeError("Full Rotowire workload did not score all 60 queries")
         backend_errors = []
         for path in run_dir.glob("*_requests.jsonl"):
             for line in path.read_text().splitlines():

@@ -143,6 +143,11 @@ class Probe:
         stage_file = os.environ.get("STRETTO_STAGE_FILE")
         stage = Path(stage_file).read_text().strip() if stage_file and Path(stage_file).exists() else "unknown"
         self.context = {"request_id": uuid.uuid4().hex, "stage": stage, "phase": phase, "endpoint": path}
+        # Full workloads keep the existing stage names so the trace quota still works.
+        # A separate atomic sidecar attributes backend work to the current query.
+        query_file = Path(stage_file).with_name("current_query.json") if stage_file else None
+        if query_file and query_file.is_file():
+            self.context.update(json.loads(query_file.read_text(encoding="utf-8")))
         self.peaks = {"allocated_bytes": self.torch.cuda.memory_allocated(),
                       "reserved_bytes": self.torch.cuda.memory_reserved()}
         self.torch.cuda.reset_peak_memory_stats()
@@ -432,6 +437,7 @@ def summarize(directory):
     """Keep sum-of-intervals separate from end-to-end time; stream large sidecars."""
     directory = Path(directory)
     groups = {}
+    query_groups = {}
     batches, requests = {}, []
     limitations, traces = [], []
     fields = ["role", "stage", "phase", "name", "observations", "cpu_wall_sum_s", "gpu_elapsed_sum_s", "tensor_bytes", "input_tokens"]
@@ -462,6 +468,16 @@ def summarize(directory):
                 elif row["kind"] == "trace":
                     traces.append(row)
                 elif row["kind"] == "span":
+                    if row.get("query_id") is not None:
+                        query_keys = ("query_index", "query_id", "role", "stage", "phase", "name")
+                        query_key = tuple(row.get(k) for k in query_keys)
+                        query_item = query_groups.setdefault(query_key, {
+                            **dict(zip(query_keys, query_key)), "observations": 0,
+                            "cpu_wall_sum_s": 0., "gpu_elapsed_sum_s": None})
+                        query_item["observations"] += 1
+                        query_item["cpu_wall_sum_s"] += row["cpu_wall_s"]
+                        if row.get("gpu_elapsed_s") is not None:
+                            query_item["gpu_elapsed_sum_s"] = (query_item["gpu_elapsed_sum_s"] or 0) + row["gpu_elapsed_s"]
                     if item_batch is not None:
                         name = row["name"]
                         target = {"vanilla_prefill": "prefill_gpu_s", "cached_query_prefill": "prefill_gpu_s",
@@ -519,6 +535,12 @@ def summarize(directory):
                   t["status"] for t in traces if t["role"] == r and t["route"] == route), "not_captured")}
                   for r in ("small", "large") for route in ("vanilla", "kv")]}
     (directory / "summary.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    if query_groups:
+        with (directory / "per_query_spans.csv").open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=("query_index", "query_id", "role", "stage", "phase", "name",
+                                                       "observations", "cpu_wall_sum_s", "gpu_elapsed_sum_s"))
+            writer.writeheader()
+            writer.writerows(query_groups.values())
     with (directory / "summary.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()

@@ -9,7 +9,7 @@ from urllib.request import urlopen
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--provenance", default="docs/source_provenance.json")
+    parser.add_argument("--provenance", default="configs/source_provenance.json")
     parser.add_argument("--destination", default="stretto-main/stretto-main/reasondb/evaluation/benchmarks/files")
     args = parser.parse_args()
     provenance = json.loads(Path(args.provenance).read_text(encoding="utf-8"))

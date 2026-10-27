@@ -21,6 +21,12 @@ def load_profile(path):
         raise ValueError("v1 supports physical cr=0.8 and batch_size=1 only")
     if profile["reports_limit"] <= 0:
         raise ValueError("reports_limit must be positive")
+    if profile.get("workload", "fixed") not in ("fixed", "rotowire_random"):
+        raise ValueError("Unknown reproduction workload")
+    if profile.get("workload") == "rotowire_random" and (
+        profile["reports_limit"] != 728 or profile.get("expected_queries") != 60
+    ):
+        raise ValueError("rotowire_random requires all 728 reports and 60 queries")
     profile["cache_namespace"] = profile["name"] + "_" + hashlib.sha256(json.dumps(profile, sort_keys=True).encode()).hexdigest()[:12]
     return profile
 

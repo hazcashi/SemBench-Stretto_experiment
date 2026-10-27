@@ -15,13 +15,13 @@ IMAGE=${STRETTO_IMAGE:-$(env_value STRETTO_IMAGE)}
 if [[ "$ACTION" == profile-nsys ]]; then
   IMAGE=${STRETTO_NSYS_IMAGE:-$(env_value STRETTO_NSYS_IMAGE)}
   if [[ -z "$IMAGE" ]]; then
-    echo 'Set STRETTO_NSYS_IMAGE to the separately built profiling image; see docs/profiling.md.' >&2
+    echo 'For the current Rotowire 60-query workflow, see docs/full_rotowire_vast.md.' >&2
     exit 1
   fi
 fi
 if [[ -z "$IMAGE" && -f docker/image.txt ]]; then IMAGE=$(tr -d '\r\n' < docker/image.txt); fi
 if [[ -z "$IMAGE" ]]; then
-  echo 'No published image is pinned yet. Set STRETTO_IMAGE to a built tag or GHCR digest; see docs/deployment.md.' >&2
+  echo 'Set STRETTO_IMAGE to a built tag or GHCR digest; see docs/full_rotowire_vast.md for the current workflow.' >&2
   exit 1
 fi
 DATA=${STRETTO_DATA_DIR:-$(env_value STRETTO_DATA_DIR)}

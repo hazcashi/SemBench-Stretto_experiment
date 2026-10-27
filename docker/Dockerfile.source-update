@@ -9,7 +9,7 @@ LABEL org.opencontainers.image.revision=$SOURCE_REVISION \
 COPY stretto-main/stretto-main /opt/stretto/source
 COPY configs /opt/stretto/configs
 COPY tests /opt/stretto/tests
-COPY docs/source_provenance.json /opt/stretto/source_provenance.json
+COPY configs/source_provenance.json /opt/stretto/source_provenance.json
 COPY scripts/fetch_rotowire.py /opt/stretto/fetch_rotowire.py
 RUN python /opt/stretto/fetch_rotowire.py --provenance /opt/stretto/source_provenance.json --destination reasondb/evaluation/benchmarks/files && \
     pip check && python -c "import torch,flash_attn; from kvpress import ExpectedAttentionPress" && \

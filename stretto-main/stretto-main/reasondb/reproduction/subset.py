@@ -2,9 +2,28 @@
 import csv
 import hashlib
 import json
+import shutil
 from pathlib import Path
 
 TABLES = ("players", "teams", "reports", "players_to_games", "teams_to_games")
+
+
+def copy_full_dataset(source, destination):
+    """Preserve every row and byte of all five upstream tables, including row IDs."""
+    source, destination = Path(source), Path(destination)
+    destination.mkdir(parents=True, exist_ok=True)
+    manifest = {"selection": "all upstream rows, byte-identical copies", "tables": {}}
+    for table in TABLES:
+        src, dst = source / f"{table}.csv", destination / f"{table}.csv"
+        with src.open(encoding="utf-8-sig", newline="") as handle:
+            count = sum(1 for _ in csv.DictReader(handle))
+        if table == "reports" and count != 728:
+            raise ValueError(f"Full Rotowire requires 728 reports, found {count}")
+        shutil.copyfile(src, dst)
+        manifest["tables"][table] = {"rows": count, "sha256": sha256(dst),
+                                     "source_sha256": sha256(src)}
+    (destination / "manifest.json").write_text(json.dumps(manifest, indent=2)+"\n", encoding="utf-8")
+    return manifest
 
 
 def sha256(path):

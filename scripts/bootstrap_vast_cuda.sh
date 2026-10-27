@@ -74,7 +74,7 @@ for entry in source configs tests; do
     fi
 done
 cd "$ROOT/source"
-python "$CHECKOUT/scripts/fetch_rotowire.py" --provenance "$CHECKOUT/docs/source_provenance.json" --destination reasondb/evaluation/benchmarks/files
+python "$CHECKOUT/scripts/fetch_rotowire.py" --provenance "$CHECKOUT/configs/source_provenance.json" --destination reasondb/evaluation/benchmarks/files
 python -m pip install --no-deps -e .
 if [[ -e logging || -L logging ]]; then
     [[ -L logging && $(readlink -f logging) == /results/logging ]] || { echo 'Unexpected source/logging; stop without overwriting it.' >&2; exit 2; }
